@@ -1,8 +1,13 @@
 package ai.edgelm
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import ai.edgelm.internal.RuntimeConnection
 import kotlinx.coroutines.flow.Flow
+
+/** Thrown when the EdgeLM Runtime app is missing or doesn't respond — instead of hanging. */
+class EdgeLMUnavailableException(message: String) : RuntimeException(message)
 
 /**
  * EdgeLM public SDK — Phase 0.
@@ -22,6 +27,27 @@ object EdgeLM {
     const val INTERACTIVE = 2
     const val BATCH = 1
     const val BACKGROUND = 0
+
+    private const val RUNTIME_PACKAGE = "ai.edgelm.runtime"
+
+    /** Runtime availability on this device — check before [chat] to branch cleanly. */
+    enum class Status { AVAILABLE, NOT_INSTALLED }
+
+    /** Cheap presence check (no bind). Lets an app fall back or prompt install up front. */
+    fun status(context: Context): Status =
+        if (runCatching { context.packageManager.getPackageInfo(RUNTIME_PACKAGE, 0); true }.getOrDefault(false))
+            Status.AVAILABLE else Status.NOT_INSTALLED
+
+    /** Send the user to the runtime's store page (market:// with web fallback). Safe no-op on failure. */
+    fun promptInstall(context: Context) {
+        val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$RUNTIME_PACKAGE"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val web = Intent(Intent.ACTION_VIEW,
+            Uri.parse("https://play.google.com/store/apps/details?id=$RUNTIME_PACKAGE"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { context.startActivity(market) }
+            .onFailure { runCatching { context.startActivity(web) } }
+    }
 
     /** Bind to the shared runtime service. Idempotent. */
     fun initialize(context: Context) {
