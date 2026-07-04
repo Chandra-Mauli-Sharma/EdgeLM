@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeLM — Engineering Design Document</title>
+<link rel="icon" href="assets/edgelm-favicon.svg">
+<style>
+  :root{
+    --obsidian:#0B0E10; --carbon:#14181B; --slate:#1E262B; --slate2:#222B31; --line:#242D33; --line2:#2E3941;
+    --signal:#9BFF3C; --signal-deep:#7CEB1E; --volt:#2DE3FF; --amber:#F5C451; --rose:#FF6B7A; --violet:#B78CFF;
+    --mist:#EEF2F0; --fog:#B4C0C5; --steel:#84939B; --ink:#0B0E10;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --mono:'JetBrains Mono','SF Mono',ui-monospace,'Cascadia Code',Consolas,monospace;
+    --sbw:290px; --maxc:920px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--obsidian);color:var(--mist);font-family:var(--sans);line-height:1.65;-webkit-font-smoothing:antialiased}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--signal);color:var(--ink)}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#2b353b;border-radius:6px}
+  ::-webkit-scrollbar-track{background:var(--obsidian)}
+
+  /* ---------- LAYOUT ---------- */
+  .layout{display:flex;align-items:flex-start}
+  aside{position:sticky;top:0;height:100vh;width:var(--sbw);flex:none;border-right:1px solid var(--line);
+    background:linear-gradient(180deg,#0C0F11,#0B0E10);overflow-y:auto;padding:22px 16px 40px}
+  main{flex:1;min-width:0;padding:0 clamp(20px,4vw,64px)}
+  .col{max-width:var(--maxc);margin:0 auto;padding:48px 0 120px}
+  @media(max-width:960px){aside{display:none}}
+
+  /* ---------- SIDEBAR ---------- */
+  .side-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:-.5px;padding:6px 10px 18px}
+  .side-brand .dot{width:7px;height:7px;border-radius:50%;background:var(--volt);box-shadow:0 0 10px var(--volt)}
+  .side-tag{font-family:var(--mono);font-size:10.5px;color:var(--steel);padding:0 10px 16px;text-transform:uppercase;letter-spacing:1px}
+  .toc a{display:block;font-size:13px;color:var(--fog);padding:6px 10px;border-radius:8px;border-left:2px solid transparent;transition:.14s}
+  .toc a .n{font-family:var(--mono);color:var(--steel);font-size:11px;margin-right:8px}
+  .toc a:hover{background:var(--carbon);color:var(--mist)}
+  .toc a.active{color:var(--signal);border-left-color:var(--signal);background:rgba(155,255,60,.06)}
+  .toc a.active .n{color:var(--signal)}
+
+  /* ---------- TYPOGRAPHY ---------- */
+  .doc-head{border-bottom:1px solid var(--line);padding-bottom:34px;margin-bottom:10px}
+  .doc-badge{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line2);background:var(--carbon);border-radius:999px;padding:6px 14px;font-family:var(--mono);font-size:11.5px;color:var(--signal);margin-bottom:22px}
+  h1.title{font-size:clamp(34px,5vw,52px);font-weight:800;letter-spacing:-2px;line-height:1.05;margin-bottom:16px}
+  h1.title .g{background:linear-gradient(120deg,var(--signal),var(--volt));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .doc-sub{font-size:18px;color:var(--fog);max-width:680px}
+  .meta-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px;font-family:var(--mono);font-size:11.5px;color:var(--steel)}
+  .meta-row span{border:1px solid var(--line);border-radius:7px;padding:5px 10px}
+
+  .part{padding-top:64px;margin-top:20px;border-top:1px solid var(--line)}
+  .part:first-of-type{border-top:none}
+  .kicker{font-family:var(--mono);font-size:12px;color:var(--volt);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:10px}
+  .kicker::before{content:"";width:24px;height:1px;background:var(--volt)}
+  h2{font-size:clamp(26px,3.5vw,34px);font-weight:800;letter-spacing:-1px;margin-bottom:14px;scroll-margin-top:20px}
+  h3{font-size:20px;font-weight:700;letter-spacing:-.4px;margin:34px 0 12px;color:var(--mist)}
+  h4{font-size:15px;font-weight:700;color:var(--signal);margin:22px 0 8px;font-family:var(--mono);letter-spacing:-.2px}
+  p{color:var(--fog);margin-bottom:14px}
+  .lead{font-size:18px;color:var(--fog);margin-bottom:16px}
+  strong{color:var(--mist);font-weight:650}
+  em{color:var(--fog)}
+  code{font-family:var(--mono);background:var(--carbon);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:.85em;color:var(--signal)}
+
+  ul,ol{margin:6px 0 16px;padding-left:0;list-style:none}
+  ul li,ol li{position:relative;padding-left:26px;margin-bottom:9px;color:var(--fog);font-size:15px}
+  ul li::before{content:"";position:absolute;left:2px;top:9px;width:8px;height:8px;border-radius:2px;background:var(--signal)}
+  ol{counter-reset:oli}
+  ol li::before{counter-increment:oli;content:counter(oli);position:absolute;left:0;top:1px;font-family:var(--mono);font-size:11px;color:var(--volt);background:var(--carbon);border:1px solid var(--line);width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center}
+  li strong{color:var(--mist)}
+
+  /* ---------- COMPONENTS ---------- */
+  .grid{display:grid;gap:14px;margin:16px 0}
+  .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:720px){.g2,.g3{grid-template-columns:1fr}}
+  .card{background:var(--carbon);border:1px solid var(--line);border-radius:14px;padding:18px}
+  .card h4{margin-top:0}
+  .card p{font-size:13.5px;margin:0}
+
+  .decision{border:1px solid var(--line2);border-left:3px solid var(--signal);background:linear-gradient(90deg,rgba(155,255,60,.05),transparent);border-radius:0 12px 12px 0;padding:14px 18px;margin:16px 0}
+  .decision .tl{font-family:var(--mono);font-size:11px;color:var(--signal);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}
+  .tradeoff{border:1px solid var(--line2);border-left:3px solid var(--amber);background:linear-gradient(90deg,rgba(245,196,81,.05),transparent);border-radius:0 12px 12px 0;padding:14px 18px;margin:16px 0}
+  .tradeoff .tl{font-family:var(--mono);font-size:11px;color:var(--amber);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}
+  .gap{border:1px solid var(--line2);border-left:3px solid var(--violet);background:linear-gradient(90deg,rgba(183,140,255,.05),transparent);border-radius:0 12px 12px 0;padding:14px 18px;margin:16px 0}
+  .gap .tl{font-family:var(--mono);font-size:11px;color:var(--violet);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}
+  .decision p,.tradeoff p,.gap p{font-size:14px;margin:0;color:var(--fog)}
+  .decision p+p,.tradeoff p+p{margin-top:8px}
+
+  pre{background:#0D1114;border:1px solid var(--line);border-radius:12px;padding:18px 20px;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.7;margin:16px 0;color:#C6D2CC}
+  pre .cm{color:#5c6a72}.kw{color:var(--volt)}.st{color:var(--signal)}.fn{color:#F5D76E}.nm{color:var(--rose)}.pv{color:var(--violet)}
+  .pre-label{font-family:var(--mono);font-size:10.5px;color:var(--steel);text-transform:uppercase;letter-spacing:1px;margin:16px 0 -8px}
+
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px}
+  th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--steel);border-bottom:1px solid var(--line2)}
+  td strong{color:var(--signal)}
+  tr:hover td{background:rgba(255,255,255,.01)}
+
+  /* ---------- DIAGRAMS ---------- */
+  figure{margin:24px 0;border:1px solid var(--line);border-radius:16px;background:radial-gradient(120% 120% at 50% 0%,#0F1416,#0B0E10);padding:22px 20px 14px;overflow-x:auto}
+  figure svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  figcaption{font-family:var(--mono);font-size:11px;color:var(--steel);text-align:center;margin-top:14px;letter-spacing:.4px}
+  figcaption b{color:var(--fog)}
+
+  /* CSS box-diagram primitives */
+  .stack{display:flex;flex-direction:column;gap:10px;margin:6px auto;max-width:640px}
+  .layer{border:1px solid var(--line2);border-radius:12px;padding:12px 16px;background:var(--carbon);position:relative}
+  .layer .lh{font-weight:700;font-size:14px;color:var(--mist);display:flex;align-items:center;gap:8px}
+  .layer .ld{font-size:12px;color:var(--steel);font-family:var(--mono);margin-top:3px}
+  .layer.app{border-color:#3a4d2e}.layer.sdk{border-color:#2e4a52}.layer.svc{border-color:#4a3a52}.layer.native{border-color:#52463a}.layer.hw{border-color:#3a4048}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .chip{font-family:var(--mono);font-size:10.5px;color:var(--fog);border:1px solid var(--line);border-radius:6px;padding:3px 8px;background:#0E1315}
+  .flowdown{text-align:center;color:var(--steel);font-size:18px;line-height:1;margin:-4px 0}
+
+  .badges{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+  .b-pill{font-family:var(--mono);font-size:11px;border:1px solid var(--line2);border-radius:999px;padding:5px 12px;color:var(--fog)}
+  .b-pill.on{color:var(--signal);border-color:rgba(155,255,60,.4)}
+
+  hr.soft{border:none;border-top:1px solid var(--line);margin:26px 0}
+  .foot{border-top:1px solid var(--line);margin-top:80px;padding:36px 0;color:var(--steel);font-size:12.5px}
+  .foot .disc{max-width:640px;font-size:11px;color:#4a565c;margin-top:12px}
+  .top{position:fixed;right:22px;bottom:22px;background:var(--carbon);border:1px solid var(--line2);border-radius:10px;width:42px;height:42px;display:flex;align-items:center;justify-content:center;color:var(--fog);font-size:18px;z-index:60}
+  .top:hover{color:var(--signal);border-color:var(--signal)}
+</style>
+</head>
+<body>
+<div class="layout">
+<aside>
+  <div class="side-brand">Edge<span style="color:var(--signal)">LM</span><span class="dot"></span></div>
+  <div class="side-tag">Engineering Design Doc · v0.9 · RFC</div>
+  <nav class="toc" id="toc">
+    <a href="#p1"><span class="n">01</span>Product Vision</a>
+    <a href="#p2"><span class="n">02</span>System Architecture</a>
+    <a href="#p3"><span class="n">03</span>Runtime Engine</a>
+    <a href="#p4"><span class="n">04</span>Memory Architecture</a>
+    <a href="#p5"><span class="n">05</span>Local API</a>
+    <a href="#p6"><span class="n">06</span>Android SDK</a>
+    <a href="#p7"><span class="n">07</span>Security Model</a>
+    <a href="#p8"><span class="n">08</span>AI Scheduler</a>
+    <a href="#p9"><span class="n">09</span>Plugin Platform</a>
+    <a href="#p10"><span class="n">10</span>Model Marketplace</a>
+    <a href="#p11"><span class="n">11</span>Performance Engineering</a>
+    <a href="#p12"><span class="n">12</span>Future Modalities</a>
+    <a href="#p13"><span class="n">13</span>Developer Platform</a>
+    <a href="#p14"><span class="n">14</span>Application UX</a>
+    <a href="#p15"><span class="n">15</span>Business Strategy</a>
+    <a href="#p16"><span class="n">16</span>Roadmap</a>
+  </nav>
+</aside>
+<main>
+<div class="col">
+
+  <div class="doc-head">
+    <div class="doc-badge">◆ EDGELM · ARCHITECTURE REVIEW · CONFIDENTIAL DRAFT</div>
+    <h1 class="title">The <span class="g">Android AI Runtime</span><br>— Technical Blueprint</h1>
+    <p class="doc-sub">A systems design for the local AI runtime that should ship with every Android device: a shared, secure, OpenAI-compatible inference service that any app can call — <code>EdgeLM.chat(...)</code> — without embedding an engine or touching the cloud.</p>
+    <div class="meta-row">
+      <span>Author: Founding Engineer / CTO</span><span>Audience: Architecture Review</span><span>Status: Draft for review</span><span>Scope: 16 parts</span>
+    </div>
+  </div>
+
+<!-- ============ PART 1 ============ -->
+<section class="part" id="p1">
+  <div class="kicker">Part 01 — Product Vision</div>
+  <h2>What Android is missing</h2>
+  <p class="lead">Every Android phone is a supercomputer with a GPU, an NPU, and gigabytes of RAM — yet there is no operating-system primitive for running AI. Each app that wants intelligence ships its own inference engine, downloads its own multi-gigabyte weights, drains the battery independently, and either runs slowly or ships user data to a cloud. EdgeLM proposes the missing primitive: <strong>a first-class AI runtime, owned by the platform, shared by every app.</strong></p>
+
+  <div class="grid g2">
+    <div class="card"><h4>Mission</h4><p>Make on-device AI a native capability of Android — a system service any app can call, so intelligence is as ordinary to request as location or storage.</p></div>
+    <div class="card"><h4>Vision</h4><p>A world where AI runs where data lives. EdgeLM becomes the default local runtime across phones, tablets, wearables, cars, and glasses — the layer between silicon and software, invisible and everywhere.</p></div>
+  </div>
+
+  <h3>Product philosophy</h3>
+  <p>Five convictions drive every decision in this document:</p>
+  <ol>
+    <li><strong>Inference is infrastructure, not a feature.</strong> It belongs in the OS layer, like the graphics stack or the media codec service — not re-implemented in every app.</li>
+    <li><strong>The model is a shared, mmap'd resource.</strong> If ten apps use Llama-3.2-3B, there is one copy of the weights in memory, one download on disk, one warm runtime. Anything else wastes the device.</li>
+    <li><strong>The device is the datacenter; the cloud is a fallback.</strong> Local-first is not a privacy slogan — it is the default execution target. Cloud is an explicit, opt-in overflow.</li>
+    <li><strong>Compatibility is a growth strategy.</strong> Speak the API developers already know (OpenAI) so migration is one line, then earn lock-in through quality, not incompatibility.</li>
+    <li><strong>The runtime must be invisible when it works and legible when it doesn't.</strong> Developers get world-class tracing, profiling, and benchmarks; users get a calm system UI that shows exactly which app used which model, and why the battery moved.</li>
+  </ol>
+
+  <h3>Long-term direction</h3>
+  <p>EdgeLM starts as an installable runtime + SDK, matures into a developer platform (Hub, Studio, CLI, marketplace), and ends as an <strong>ambient intelligence layer</strong> spanning every edge device class. The endgame is that "add AI to your app" means "call EdgeLM," the way "store a file" means "call the filesystem." The strategic bet: whoever owns the runtime API owns the developer relationship for on-device AI for the next decade.</p>
+
+  <div class="grid g3">
+    <div class="card"><h4>DX philosophy</h4><p>Five minutes to first token. One import, typed APIs, sane defaults, zero model-format archaeology. The runtime hides quantization, backend selection, memory, and scheduling. Raycast-grade polish in every tool.</p></div>
+    <div class="card"><h4>Privacy philosophy</h4><p>Privacy is topology, not policy. Prompts never leave the device by default; there is no telemetry on content, ever. Cross-app isolation is enforced by the kernel, not by good behavior. The user can see and revoke everything.</p></div>
+    <div class="card"><h4>Performance philosophy</h4><p>Measure everything; optimize the p95, not the demo. Every millisecond of latency and every milliamp of battery is a budget line. Shared caches, warm runtimes, and hardware acceleration are the default, not a "pro" mode.</p></div>
+  </div>
+
+  <div class="gap"><div class="tl">◆ Proactive opportunity — the "AI capability" as an OS contract</div><p>Beyond a runtime, EdgeLM should define a <strong>capability manifest</strong>: an app declares in its manifest which modalities and models it needs (<code>llm.chat</code>, <code>vision.caption</code>, <code>speech.transcribe</code>). The OS/EdgeLM can then pre-provision models, show honest permission prompts, and let the Play Store surface "AI requirements" the way it surfaces permissions today. This turns EdgeLM from a library into a platform contract — the real moat.</p></div>
+</section>
+
+<!-- ============ PART 2 ============ -->
+<section class="part" id="p2">
+  <div class="kicker">Part 02 — System Architecture</div>
+  <h2>One runtime, many apps, shared metal</h2>
+  <p class="lead">EdgeLM runs as a persistent, sandboxed <strong>system service</strong> (a bound Android <code>Service</code>, aspirationally a platform service) that owns the models, the memory, the GPU/NPU scheduling, and the security boundary. Apps never touch the engine; they talk to a thin SDK that marshals calls over Binder to the service, which dispatches to native inference backends. Think <em>Play Services for AI</em>, with <em>Kubernetes-style scheduling</em> underneath.</p>
+
+  <figure>
+    <div class="stack">
+      <div class="layer app"><div class="lh">◱ Application Layer <span style="color:var(--steel);font-weight:400;font-size:11px">— untrusted, sandboxed per app</span></div><div class="ld">notes.app · camera.app · keyboard.app · your.app</div><div class="chips"><span class="chip">EdgeLM.chat()</span><span class="chip">POST /v1/chat/completions</span><span class="chip">capability manifest</span></div></div>
+      <div class="flowdown">▾ &nbsp; in-process SDK call</div>
+      <div class="layer sdk"><div class="lh">△ SDK Layer <span style="color:var(--steel);font-weight:400;font-size:11px">— Kotlin/Java + REST client, per-app</span></div><div class="ld">typed API · streaming · token accounting · ret/backoff · local loopback server</div><div class="chips"><span class="chip">AIDL stubs</span><span class="chip">Flow&lt;Token&gt;</span><span class="chip">OpenAI shim</span></div></div>
+      <div class="flowdown">▾ &nbsp; Binder IPC (AIDL) · shared-memory for tensors</div>
+      <div class="layer svc"><div class="lh">◈ EdgeLM System Service <span style="color:var(--steel);font-weight:400;font-size:11px">— trusted, single instance, isolated process</span></div><div class="ld">the brain: request broker + policy + lifecycle</div>
+        <div class="chips"><span class="chip">API Gateway</span><span class="chip">Security / Permission Broker</span><span class="chip">AI Scheduler</span><span class="chip">Model Lifecycle Mgr</span><span class="chip">Memory Manager</span><span class="chip">Plugin Broker (MCP)</span><span class="chip">Metrics / Tracing</span></div></div>
+      <div class="flowdown">▾ &nbsp; JNI · zero-copy tensor handoff</div>
+      <div class="layer native"><div class="lh">⚙ Native Runtime Layer <span style="color:var(--steel);font-weight:400;font-size:11px">— C/C++/Rust, hot path</span></div><div class="ld">backend abstraction · graph exec · KV/prompt cache · quant kernels · sampler</div><div class="chips"><span class="chip">llama.cpp</span><span class="chip">MLC / TVM</span><span class="chip">ONNX Runtime</span><span class="chip">Vulkan</span><span class="chip">NNAPI</span><span class="chip">QNN</span><span class="chip">tokenizers</span></div></div>
+      <div class="flowdown">▾ &nbsp; vendor drivers</div>
+      <div class="layer hw"><div class="lh">▤ Hardware Layer</div><div class="ld">CPU (big.LITTLE) · GPU (Adreno/Mali/Xclipse) · NPU (Hexagon/APU/Exynos) · DSP</div></div>
+    </div>
+    <div style="display:flex;gap:12px;justify-content:center;margin-top:16px;flex-wrap:wrap">
+      <span class="chip">◨ Model Store (mmap files + signed manifest)</span>
+      <span class="chip">◧ Shared Memory Arena (weights + KV pools)</span>
+      <span class="chip">◩ Encrypted Cache (prompt / KV persistence)</span>
+    </div>
+    <figcaption><b>Fig 2.1</b> — EdgeLM layered architecture. The system service is the single trust and scheduling boundary; models and memory are shared across all apps below it.</figcaption>
+  </figure>
+
+  <h3>Why a system service, not a library</h3>
+  <div class="decision"><div class="tl">Decision — Central service model over per-app embedding</div><p>EdgeLM runs inference in <strong>one shared, out-of-process service</strong>, not as a library linked into each app. This is the foundational architectural choice.</p></div>
+  <div class="tradeoff"><div class="tl">Trade-off analysis</div><p><strong>Wins:</strong> one copy of weights in RAM and on disk (a 3B model at Q4 is ~2GB — embedding it in five apps is 10GB, sharing it is 2GB); global scheduling so apps can't collectively melt the SoC; one security boundary; centralized updates; battery/thermal governance across the whole device.</p><p><strong>Costs:</strong> IPC latency on the request path (mitigated by shared memory for tensors — we never copy weights or KV over Binder); a single point of failure (mitigated by a supervised, auto-restarting service with request replay); versioning complexity (the service must support multiple model/ABI versions concurrently). We accept these because the RAM and scheduling wins are existential on mobile.</p></div>
+
+  <h3>Component responsibilities</h3>
+  <table>
+    <tr><th>Component</th><th>Responsibility</th><th>Key design note</th></tr>
+    <tr><td><strong>API Gateway</strong></td><td>Terminates Binder + local HTTP; validates, normalizes to internal IR, enforces quotas</td><td>OpenAI-shape in, canonical request out</td></tr>
+    <tr><td><strong>Permission Broker</strong></td><td>Maps calling UID → granted capabilities; gates every request</td><td>Ties into Android's permission + package manager</td></tr>
+    <tr><td><strong>AI Scheduler</strong></td><td>Orders, batches, preempts, and cancels inference jobs across apps</td><td>OS-style scheduler (Part 8)</td></tr>
+    <tr><td><strong>Model Lifecycle Mgr</strong></td><td>Download, verify, load, warm, evict, roll back models</td><td>State machine in Fig 2.2</td></tr>
+    <tr><td><strong>Memory Manager</strong></td><td>mmap arenas, KV/prompt pools, pressure-driven eviction</td><td>Part 4</td></tr>
+    <tr><td><strong>Native Runtime</strong></td><td>Backend selection + graph execution on the chosen accelerator</td><td>Part 3</td></tr>
+    <tr><td><strong>Plugin Broker</strong></td><td>Brokers tool-calls / MCP between models and sandboxed plugins</td><td>Part 9</td></tr>
+    <tr><td><strong>Metrics/Tracing</strong></td><td>Per-request spans, tokens/sec, energy, thermal — no content</td><td>Feeds DevTools (Part 13)</td></tr>
+  </table>
+
+  <h3>Model lifecycle state machine</h3>
+  <figure>
+    <svg viewBox="0 0 860 210" xmlns="http://www.w3.org/2000/svg" font-family="var(--mono),monospace">
+      <defs>
+        <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#84939B"/></marker>
+        <marker id="arg" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#9BFF3C"/></marker>
+      </defs>
+      <g font-size="12" fill="#EEF2F0" text-anchor="middle">
+        <g><rect x="10" y="80" width="96" height="42" rx="9" fill="#14181B" stroke="#2E3941"/><text x="58" y="105">Registered</text></g>
+        <g><rect x="150" y="80" width="96" height="42" rx="9" fill="#14181B" stroke="#2E3941"/><text x="198" y="105">Downloading</text></g>
+        <g><rect x="290" y="80" width="96" height="42" rx="9" fill="#14181B" stroke="#2E3941"/><text x="338" y="105">Verified</text></g>
+        <g><rect x="430" y="80" width="96" height="42" rx="9" fill="#14181B" stroke="#2E3941"/><text x="478" y="105">Resident</text><text x="478" y="118" font-size="9" fill="#84939B">(mmap, cold)</text></g>
+        <g><rect x="570" y="30" width="110" height="46" rx="9" fill="#101a10" stroke="#9BFF3C"/><text x="625" y="52" fill="#9BFF3C">Warm</text><text x="625" y="66" font-size="9" fill="#84939B">(loaded + KV)</text></g>
+        <g><rect x="720" y="30" width="110" height="46" rx="9" fill="#141a10" stroke="#7CEB1E"/><text x="775" y="52" fill="#9BFF3C">Executing</text></g>
+        <g><rect x="570" y="130" width="110" height="42" rx="9" fill="#14181B" stroke="#2E3941"/><text x="625" y="155">Evicted</text></g>
+      </g>
+      <g stroke="#84939B" stroke-width="1.5" fill="none">
+        <path d="M106,101 H150" marker-end="url(#ar)"/>
+        <path d="M246,101 H290" marker-end="url(#ar)"/>
+        <path d="M386,101 H430" marker-end="url(#ar)"/>
+        <path d="M526,95 Q550,80 570,62" marker-end="url(#arg)" stroke="#9BFF3C"/>
+        <path d="M680,53 H720" marker-end="url(#arg)" stroke="#9BFF3C"/>
+        <path d="M775,76 Q775,100 700,110 Q660,118 640,128" marker-end="url(#ar)"/>
+        <path d="M625,130 Q625,105 560,100 L528,100" marker-end="url(#ar)"/>
+        <path d="M600,130 Q560,120 528,108" stroke="#84939B"/>
+      </g>
+      <g font-size="9.5" fill="#84939B" text-anchor="middle">
+        <text x="128" y="92">pull</text><text x="268" y="92">sig ok</text><text x="408" y="92">first use</text>
+        <text x="700" y="20">schedule</text><text x="690" y="100">idle timeout</text><text x="560" y="128">mem pressure</text>
+      </g>
+    </svg>
+    <figcaption><b>Fig 2.2</b> — Model lifecycle. Weights become <b>Resident</b> via mmap without consuming committed RAM; the pages fault in lazily on first <b>Warm</b>. Eviction returns to Resident (mmap intact) or fully Evicted under pressure.</figcaption>
+  </figure>
+  <p>The crucial subtlety: <strong>Resident ≠ RAM.</strong> An mmap'd model on disk is "resident" (addressable) but costs almost no committed memory until pages fault in. Warming touches the pages the first token needs; the OS page cache does the rest. This lets EdgeLM keep dozens of models "resident" and pay real memory only for what's warm.</p>
+
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 3 ============ -->
+<section class="part" id="p3">
+  <div class="kicker">Part 03 — Runtime Engine</div>
+  <h2>A backend-agnostic inference core</h2>
+  <p class="lead">The Android hardware landscape is brutally fragmented: Adreno/Mali/Xclipse GPUs, Hexagon/Exynos/MediaTek NPUs, and a long tail of CPU-only devices. No single inference engine wins everywhere. EdgeLM's runtime is therefore an <strong>abstraction layer over multiple backends</strong> with a runtime-measured selection policy — not a bet on one engine.</p>
+
+  <h3>Backend abstraction</h3>
+  <p>Every backend implements one internal interface — <code>load(model)</code>, <code>prefill(tokens)</code>, <code>decode(kv)</code>, <code>caps()</code>, <code>profile()</code>. The core compiles a request into a canonical execution plan; the selected backend executes it. Adding hardware later means adding a backend, not touching the API.</p>
+  <div class="badges">
+    <span class="b-pill on">llama.cpp — GGUF, broad coverage, CPU+Vulkan</span>
+    <span class="b-pill on">MLC / TVM — compiled kernels, top GPU throughput</span>
+    <span class="b-pill">ONNX Runtime — vision/speech/embeddings, NNAPI EP</span>
+    <span class="b-pill">Vulkan — portable GPU compute</span>
+    <span class="b-pill">NNAPI — vendor NPU abstraction (legacy)</span>
+    <span class="b-pill">Qualcomm QNN — Hexagon direct</span>
+    <span class="b-pill">MediaTek NeuroPilot — APU</span>
+    <span class="b-pill">Samsung ENN — Exynos NPU</span>
+    <span class="b-pill on">CPU (GGML/XNNPACK) — universal fallback</span>
+  </div>
+  <div class="decision"><div class="tl">Decision — Multi-backend, not single-engine; llama.cpp + MLC as launch pair</div><p>Ship with <strong>llama.cpp</strong> (unmatched model/format coverage, reliable CPU + Vulkan) as the compatibility floor and <strong>MLC/TVM</strong> (compiled, quantization-aware kernels) as the performance ceiling on supported GPUs. Layer vendor NPU backends (QNN first — largest install base via Snapdragon) as opportunistic accelerators.</p></div>
+  <div class="tradeoff"><div class="tl">Trade-off — why not NNAPI-only, or one engine?</div><p>NNAPI promised a unified NPU abstraction but delivers inconsistent operator support, poor LLM-shaped workload performance, and is being de-emphasized in favor of vendor SDKs — so it's a fallback, not a foundation. A single engine (e.g., MLC everywhere) maximizes performance on flagships but strands the mid/low tier and every unusual model format. Multi-backend costs us a maintenance and testing matrix (mitigated by the shared interface + a conformance test suite every backend must pass), but it's the only way to cover the real device distribution.</p></div>
+
+  <h3>Backend selection — how EdgeLM chooses</h3>
+  <p>Selection is <strong>measured, cached, and adaptive</strong>, not hardcoded per SoC. On first run for a given (model, device) pair, EdgeLM executes a short micro-benchmark; results are cached in the model manifest and refreshed opportunistically.</p>
+  <pre><span class="pre-label"></span><span class="cm">// backend selection — decision order</span>
+<span class="kw">fun</span> <span class="fn">selectBackend</span>(model, device, request):
+  candidates = backends.<span class="fn">filter</span> { it.<span class="fn">supports</span>(model.arch, model.quant) }
+  candidates = candidates.<span class="fn">filter</span> { it.<span class="fn">fitsMemory</span>(model, device.<span class="fn">freeRam</span>()) }
+
+  <span class="cm">// 1. hard constraints: correctness &amp; memory first</span>
+  <span class="kw">if</span> candidates.<span class="fn">isEmpty</span>() → <span class="kw">return</span> CPU_FALLBACK   <span class="cm">// always works</span>
+
+  <span class="cm">// 2. policy: honor request hints (latency vs energy)</span>
+  <span class="kw">val</span> weight = <span class="kw">when</span> (request.priority, device.<span class="fn">onBattery</span>(), device.<span class="fn">thermal</span>()):
+     FOREGROUND, *          → { tps: <span class="pv">0.7</span>, energy: <span class="pv">0.1</span>, ttft: <span class="pv">0.2</span> }
+     BACKGROUND, battery    → { tps: <span class="pv">0.2</span>, energy: <span class="pv">0.6</span>, ttft: <span class="pv">0.2</span> }
+     *, thermal &gt; WARN      → { tps: <span class="pv">0.3</span>, energy: <span class="pv">0.5</span>, ttft: <span class="pv">0.2</span> }  <span class="cm">// prefer NPU/CPU, throttle GPU</span>
+
+  <span class="cm">// 3. score against cached micro-benchmark profiles</span>
+  <span class="kw">return</span> candidates.<span class="fn">maxBy</span> { b -&gt; <span class="fn">score</span>(b.profile(model,device), weight) }</pre>
+  <p>The energy term is why an NPU often wins on battery even when a GPU is faster: NPUs deliver dramatically better tokens-per-joule. The scheduler (Part 8) can also <em>switch backends mid-session</em> if thermal state changes — decoding can migrate from GPU to NPU/CPU when the SoC heats up, because the KV cache is backend-portable (a deliberate constraint on our cache format).</p>
+
+  <h3>GPU / accelerator pipeline</h3>
+  <figure>
+    <svg viewBox="0 0 840 240" xmlns="http://www.w3.org/2000/svg" font-family="var(--mono),monospace">
+      <defs><marker id="ar2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#2DE3FF"/></marker></defs>
+      <g font-size="11.5" text-anchor="middle">
+        <g><rect x="14" y="96" width="112" height="48" rx="9" fill="#14181B" stroke="#2E3941"/><text x="70" y="116" fill="#EEF2F0">Tokenize</text><text x="70" y="132" fill="#84939B" font-size="9">SIMD, CPU</text></g>
+        <g><rect x="160" y="96" width="128" height="48" rx="9" fill="#14181B" stroke="#2E3941"/><text x="224" y="116" fill="#EEF2F0">Prefill (batch)</text><text x="224" y="132" fill="#84939B" font-size="9">matmul-heavy → GPU/NPU</text></g>
+        <g><rect x="322" y="96" width="120" height="48" rx="9" fill="#101a10" stroke="#9BFF3C"/><text x="382" y="116" fill="#9BFF3C">KV write</text><text x="382" y="132" fill="#84939B" font-size="9">shared arena</text></g>
+        <g><rect x="476" y="96" width="128" height="48" rx="9" fill="#14181B" stroke="#2E3941"/><text x="540" y="112" fill="#EEF2F0">Decode loop</text><text x="540" y="128" fill="#84939B" font-size="9">memory-bound,</text><text x="540" y="139" fill="#84939B" font-size="9">1 tok/step</text></g>
+        <g><rect x="638" y="96" width="104" height="48" rx="9" fill="#14181B" stroke="#2E3941"/><text x="690" y="116" fill="#EEF2F0">Sampler</text><text x="690" y="132" fill="#84939B" font-size="9">CPU</text></g>
+        <g><rect x="760" y="96" width="64" height="48" rx="9" fill="#101a10" stroke="#9BFF3C"/><text x="792" y="124" fill="#9BFF3C">Token</text></g>
+        <g><rect x="476" y="182" width="128" height="34" rx="8" fill="#0E1315" stroke="#2E3941"/><text x="540" y="203" fill="#84939B" font-size="10">stream token → app</text></g>
+      </g>
+      <g stroke="#2DE3FF" stroke-width="1.6" fill="none">
+        <path d="M126,120 H160" marker-end="url(#ar2)"/><path d="M288,120 H322" marker-end="url(#ar2)"/>
+        <path d="M442,120 H476" marker-end="url(#ar2)"/><path d="M604,120 H638" marker-end="url(#ar2)"/>
+        <path d="M742,120 H760" marker-end="url(#ar2)"/>
+        <path d="M690,144 Q690,175 604,190" marker-end="url(#ar2)"/>
+        <path d="M540,144 V182" stroke="#84939B" stroke-dasharray="3 3"/>
+        <path d="M690,144 Q690,168 560,150" stroke="#84939B" stroke-dasharray="3 3"/>
+      </g>
+      <text x="540" y="70" fill="#84939B" font-size="10" text-anchor="middle">◟ decode loop repeats per token; KV cache read each step ◞</text>
+    </svg>
+    <figcaption><b>Fig 3.1</b> — Execution pipeline. <b>Prefill</b> is compute-bound (parallel matmuls → best on GPU/NPU); <b>decode</b> is memory-bandwidth-bound (one token at a time → often CPU/NPU-competitive). EdgeLM can place the two phases on <em>different</em> accelerators.</figcaption>
+  </figure>
+  <div class="gap"><div class="tl">◆ Proactive optimization — phase-split placement</div><p>Because prefill and decode have opposite bottlenecks, EdgeLM treats them as separately schedulable stages: run prefill on the GPU (soak up the parallelism) and decode on the NPU or big-core CPU (bandwidth-efficient, cooler, better tokens/joule). Few runtimes do this today; it's a meaningful latency <em>and</em> battery win.</p></div>
+
+  <h3>Runtime optimization &amp; future hardware</h3>
+  <ul>
+    <li><strong>Ahead-of-time compilation cache:</strong> MLC kernels compiled per SoC are cached on-device and shared via Hub, so users don't pay compile time.</li>
+    <li><strong>Operator fusion &amp; graph rewriting</strong> at load time; speculative and batched decode (Part 11).</li>
+    <li><strong>Capability probing:</strong> new SoCs are onboarded by a backend + a conformance run; unknown NPUs degrade gracefully to Vulkan/CPU rather than failing.</li>
+    <li><strong>Forward path:</strong> a stable backend ABI means EdgeLM can adopt future accelerators (dedicated LLM blocks, on-die SRAM caches) without SDK changes — the whole point of the abstraction.</li>
+  </ul>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 4 ============ -->
+<section class="part" id="p4">
+  <div class="kicker">Part 04 — Memory Architecture</div>
+  <h2>The real constraint is RAM, not FLOPs</h2>
+  <p class="lead">On a phone, memory — not compute — is the wall. A mid-range device has 6–8GB shared between the OS, foreground app, and everything else; the Android low-memory killer is always watching. EdgeLM's memory manager exists to run the largest possible model at the highest possible throughput while staying invisible to the LMK. Every technique below serves one goal: <strong>minimize committed RAM, maximize token throughput.</strong></p>
+
+  <h3>Foundations: mmap + lazy loading</h3>
+  <p>Weights are never <code>read()</code> into a heap buffer. They are <code>mmap()</code>'d directly from the model file, so the kernel page cache <em>is</em> the model's memory. Consequences we exploit:</p>
+  <ul>
+    <li><strong>Zero-copy, instant "load":</strong> mapping a 2GB model is O(1); pages fault in on demand during warm-up.</li>
+    <li><strong>Free sharing:</strong> two apps using the same model map the same physical pages — the OS deduplicates for us. This is the mechanism behind "one copy in RAM."</li>
+    <li><strong>Reclaimable under pressure:</strong> clean mmap'd pages can be dropped by the kernel and re-faulted later — the model degrades to slower, not dead, under memory pressure.</li>
+  </ul>
+
+  <h3>The caches that make decode fast</h3>
+  <table>
+    <tr><th>Cache</th><th>What it holds</th><th>Design decision</th></tr>
+    <tr><td><strong>KV cache</strong></td><td>Per-session attention keys/values; the dominant runtime memory cost</td><td>Pooled + paged (see below); backend-portable format</td></tr>
+    <tr><td><strong>Prompt cache</strong></td><td>Prefill state for reused prefixes (system prompts, RAG context)</td><td>Content-addressed by prefix hash; shared across sessions of the same app</td></tr>
+    <tr><td><strong>Compiled-kernel cache</strong></td><td>AOT GPU kernels per SoC</td><td>On disk, shared via Hub</td></tr>
+    <tr><td><strong>Tokenizer/vocab</strong></td><td>Merges + vocab</td><td>mmap'd, shared per model</td></tr>
+  </table>
+
+  <h3>Paged KV cache — "virtual memory for attention"</h3>
+  <p>Naive KV allocation reserves worst-case contiguous memory per session (huge and wasteful). EdgeLM allocates KV in <strong>fixed-size blocks from a shared pool</strong> (a PagedAttention-style design), mapping logical positions to physical blocks. This yields near-zero fragmentation, lets many sessions share one pool, and enables <strong>copy-on-write prefix sharing</strong> — ten chats with the same system prompt share those KV blocks until they diverge.</p>
+  <pre><span class="cm">// KV block pool — shared across sessions &amp; apps (with isolation tags)</span>
+Pool: <span class="pv">N</span> blocks × <span class="pv">16</span> tokens × d_model × 2(K,V) × dtype
+session.kv = [blk#12, blk#7, blk#40, ...]   <span class="cm">// logical→physical map</span>
+sharedPrefix("You are a helpful assistant") → [blk#3, blk#4]  <span class="cm">// COW, refcount=10</span>
+onDiverge(session) → copyOnWrite(blk)        <span class="cm">// split only the changed block</span></pre>
+
+  <h3>The full memory toolkit</h3>
+  <div class="grid g2">
+    <div class="card"><h4>Context compression</h4><p>Old KV entries are summarized/quantized (e.g. KV → 4-bit, or attention-sink + sliding window) to extend effective context without linear memory growth. Lossy but bounded; policy per model.</p></div>
+    <div class="card"><h4>Cache reuse / dedup</h4><p>Prompt-cache hits on shared prefixes skip prefill entirely — the single biggest latency win for chat and RAG. Content-addressed so identical contexts collapse.</p></div>
+    <div class="card"><h4>Speculative decoding</h4><p>A tiny draft model proposes k tokens; the target model verifies them in one batched pass. 1.5–3× decode speedup when acceptance is high — and the draft model is itself a shared resident model.</p></div>
+    <div class="card"><h4>Adaptive quantization switching</h4><p>Under memory/thermal pressure, hot-swap to a lower-precision variant of the same model (Q4→Q3) mid-session, reusing the KV cache. Graceful degradation instead of OOM.</p></div>
+    <div class="card"><h4>Thermal adaptation</h4><p>Memory bandwidth throttles when the SoC is hot; the manager reduces batch size, shrinks KV window, and can migrate decode to a cooler unit rather than stalling.</p></div>
+    <div class="card"><h4>Background unloading</h4><p>Idle models decay Warm→Resident→Evicted on a timer + pressure signal. Foreground app's model is pinned; background apps' models are the first to shrink.</p></div>
+  </div>
+
+  <div class="decision"><div class="tl">Decision — one shared arena with per-app isolation tags</div><p>Weights and KV pools live in a <strong>single service-owned arena</strong> so physical pages are shared, but every block carries an owner/isolation tag. Cross-app KV sharing is allowed <em>only</em> for identical, non-sensitive prefixes (e.g. a public system prompt) and never for user content. This gets the RAM savings of sharing without leaking prompts between apps — the central privacy/perf tension, resolved at the block level.</p></div>
+  <div class="tradeoff"><div class="tl">Trade-off — sharing vs isolation</div><p>Maximum sharing (dedupe everything) would leak one app's context into another's cache-timing and content. Maximum isolation (nothing shared) wastes the RAM that makes the whole product viable. We draw the line at <strong>weights + public prefixes = shared; user KV = isolated &amp; encrypted at rest.</strong> Prompt-cache entries are namespaced by app UID unless explicitly marked shareable.</p></div>
+
+  <div class="gap"><div class="tl">◆ Proactive optimization — predictive residency</div><p>EdgeLM observes per-app usage patterns (with on-device, privacy-preserving stats) and <strong>pre-warms</strong> the model an app is statistically about to use — e.g. warm the keyboard's small LM when the keyboard gains focus, evict it when it loses focus. This turns cold-starts into warm-starts for the common case, using the scheduler's idle budget.</p></div>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 5 ============ -->
+<section class="part" id="p5">
+  <div class="kicker">Part 05 — Local API</div>
+  <h2>Familiar on the surface, native underneath</h2>
+  <p class="lead">The API has two faces. To developers it looks like OpenAI — a decision that makes migration a one-line base-URL change and gives us thousands of compatible tools for free. Underneath, the SDK talks to the service over <strong>Binder + shared memory</strong>, not HTTP, because on-device IPC has different physics than a network call.</p>
+
+  <h3>Transport: REST vs gRPC vs Binder vs Unix sockets</h3>
+  <table>
+    <tr><th>Transport</th><th>Latency / copies</th><th>Fit for EdgeLM</th></tr>
+    <tr><td>Local HTTP/REST (loopback)</td><td>TCP + JSON serialize both ways; kernel copies</td><td><strong>Compat surface only</strong> — expose it, don't build on it</td></tr>
+    <tr><td>gRPC (HTTP/2)</td><td>Better streaming, still TCP + protobuf copies</td><td>Good for a desktop/localhost story; overkill on-device</td></tr>
+    <tr><td>Unix domain socket</td><td>No TCP stack; still byte-stream serialize</td><td>Reasonable fallback where Binder is unavailable</td></tr>
+    <tr><td><strong>Binder + ashmem/AHardwareBuffer</strong></td><td>Kernel-mediated IPC, <strong>zero-copy for tensors/images</strong>, UID identity built in</td><td><strong>Primary transport</strong> — it's how Android services are meant to talk</td></tr>
+  </table>
+  <div class="decision"><div class="tl">Decision — Binder primary, local HTTP as a compatibility shim</div><p>The SDK marshals calls over <strong>Binder (AIDL)</strong>: it's the native Android IPC, carries the caller's UID for the permission broker automatically, and lets us pass large payloads (images, audio, embeddings) via shared-memory handles with <strong>zero copies</strong>. We <em>also</em> run a localhost HTTP server implementing the OpenAI shape, bound to <code>127.0.0.1</code> and gated by the same permission broker, so existing OpenAI SDKs, cURL, and cross-language apps work unmodified.</p></div>
+  <div class="tradeoff"><div class="tl">Trade-off — two transports to maintain</div><p>Supporting both doubles the surface, but the HTTP shim is a thin adapter over the same internal request IR — the real logic lives once, behind the gateway. The alternative (HTTP-only) would copy every image and audio buffer through the TCP stack and lose the free UID identity Binder gives us for security. Worth it.</p></div>
+
+  <h3>Request sequence — a streaming chat call</h3>
+  <figure>
+    <svg viewBox="0 0 840 320" xmlns="http://www.w3.org/2000/svg" font-family="var(--mono),monospace" font-size="11">
+      <defs><marker id="s1" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#84939B"/></marker>
+      <marker id="s2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#9BFF3C"/></marker></defs>
+      <!-- lifelines -->
+      <g stroke="#242D33" stroke-dasharray="3 4">
+        <line x1="90" y1="52" x2="90" y2="300"/><line x1="260" y1="52" x2="260" y2="300"/>
+        <line x1="430" y1="52" x2="430" y2="300"/><line x1="600" y1="52" x2="600" y2="300"/><line x1="770" y1="52" x2="770" y2="300"/>
+      </g>
+      <g text-anchor="middle" fill="#EEF2F0">
+        <g><rect x="40" y="28" width="100" height="26" rx="7" fill="#14181B" stroke="#2E3941"/><text x="90" y="45">App + SDK</text></g>
+        <g><rect x="212" y="28" width="96" height="26" rx="7" fill="#14181B" stroke="#2E3941"/><text x="260" y="45">Gateway</text></g>
+        <g><rect x="382" y="28" width="96" height="26" rx="7" fill="#1a1420" stroke="#4a3a52"/><text x="430" y="45">Perm+Sched</text></g>
+        <g><rect x="552" y="28" width="96" height="26" rx="7" fill="#14181B" stroke="#2E3941"/><text x="600" y="45">Model Mgr</text></g>
+        <g><rect x="722" y="28" width="96" height="26" rx="7" fill="#101a10" stroke="#9BFF3C"/><text x="770" y="45" fill="#9BFF3C">Runtime</text></g>
+      </g>
+      <g fill="#84939B" font-size="10">
+        <path d="M90,80 H258" stroke="#84939B" marker-end="url(#s1)"/><text x="172" y="74">chat(msgs, stream)</text>
+        <path d="M260,110 H428" stroke="#84939B" marker-end="url(#s1)"/><text x="344" y="104">check UID caps</text>
+        <path d="M430,140 H598" stroke="#84939B" marker-end="url(#s1)"/><text x="514" y="134">ensure warm</text>
+        <path d="M600,170 H768" stroke="#84939B" marker-end="url(#s1)"/><text x="684" y="164">prefill + KV</text>
+        <path d="M770,200 H432" stroke="#9BFF3C" marker-end="url(#s2)"/><text x="600" y="194" fill="#9BFF3C">token stream ↺</text>
+        <path d="M430,230 H92" stroke="#9BFF3C" marker-end="url(#s2)"/><text x="260" y="224" fill="#9BFF3C">Flow&lt;Token&gt; → UI</text>
+        <path d="M90,266 H258" stroke="#84939B" marker-end="url(#s1)" stroke-dasharray="4 3"/><text x="172" y="260">cancel() (optional)</text>
+        <path d="M260,292 H768" stroke="#84939B" marker-end="url(#s1)" stroke-dasharray="4 3"/><text x="514" y="286">preempt + free KV</text>
+      </g>
+    </svg>
+    <figcaption><b>Fig 5.1</b> — Streaming chat sequence. Cancellation propagates all the way to the runtime, which frees the KV blocks immediately — critical for a device where memory is scarce and users kill requests often.</figcaption>
+  </figure>
+
+  <h3>Surface area &amp; formats</h3>
+  <p>OpenAI-compatible where a counterpart exists; EdgeLM-native namespace (<code>/v1/edge/*</code>) for device concerns that OpenAI has no concept of (benchmarking, memory, model residency).</p>
+  <table>
+    <tr><th>Endpoint</th><th>Shape</th><th>Notes</th></tr>
+    <tr><td><code>/v1/chat/completions</code></td><td>OpenAI</td><td>Streaming (SSE), tools, JSON mode, vision (image parts)</td></tr>
+    <tr><td><code>/v1/responses</code></td><td>OpenAI Responses</td><td>Stateful, tool-loop, agent-friendly; server keeps KV for the session</td></tr>
+    <tr><td><code>/v1/embeddings</code></td><td>OpenAI</td><td>Batched; returns float or int8 vectors</td></tr>
+    <tr><td><code>/v1/audio/transcriptions</code></td><td>OpenAI</td><td>Speech-to-text; audio via shared-mem handle over Binder</td></tr>
+    <tr><td><code>/v1/audio/speech</code></td><td>OpenAI</td><td>TTS; streamed PCM/opus</td></tr>
+    <tr><td><code>/v1/images/generations</code></td><td>OpenAI</td><td>Diffusion backend (Part 12), gated by device tier</td></tr>
+    <tr><td><code>/v1/edge/tokenize</code></td><td>native</td><td>Token count/echo — lets apps budget context client-side, free</td></tr>
+    <tr><td><code>/v1/edge/models</code></td><td>native</td><td>List/pull/warm/evict; residency + quant variants</td></tr>
+    <tr><td><code>/v1/edge/bench</code></td><td>native</td><td>Run the micro-benchmark; returns tps/ttft/energy per backend</td></tr>
+    <tr><td><code>/v1/edge/health</code> · <code>/metrics</code></td><td>native</td><td>Liveness, warm set, mem/thermal state; Prometheus-style metrics (no content)</td></tr>
+  </table>
+  <pre><span class="pre-label">POST /v1/chat/completions  ·  streaming, tool-enabled</span>{
+  <span class="nm">"model"</span>: <span class="st">"llama-3.2-3b-instruct"</span>,
+  <span class="nm">"stream"</span>: <span class="kw">true</span>,
+  <span class="nm">"messages"</span>: [{<span class="nm">"role"</span>:<span class="st">"user"</span>,<span class="nm">"content"</span>:<span class="st">"What's on my calendar tomorrow?"</span>}],
+  <span class="nm">"tools"</span>: [{<span class="nm">"type"</span>:<span class="st">"function"</span>,<span class="nm">"function"</span>:{<span class="nm">"name"</span>:<span class="st">"calendar.query"</span>}}],
+  <span class="nm">"edge"</span>: { <span class="cm">// EdgeLM extension block — ignored by OpenAI clients</span>
+    <span class="nm">"priority"</span>: <span class="st">"foreground"</span>, <span class="nm">"max_energy_mj"</span>: <span class="pv">1500</span>,
+    <span class="nm">"allow_backends"</span>: [<span class="st">"npu"</span>,<span class="st">"gpu"</span>,<span class="st">"cpu"</span>], <span class="nm">"cache"</span>: <span class="st">"prefix"</span>
+  }
+}
+<span class="cm">// → SSE: data: {"choices":[{"delta":{"content":"You "}}]} ... [DONE]</span></pre>
+  <div class="gap"><div class="tl">◆ Proactive addition — the <code>edge{}</code> extension envelope</div><p>Rather than fork the schema, EdgeLM tucks device-specific controls (priority, energy budget, backend hints, cache policy) into an optional <code>edge</code> field that vanilla OpenAI clients ignore. Full compatibility <em>and</em> full control, no schema war.</p></div>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 6 ============ -->
+<section class="part" id="p6">
+  <div class="kicker">Part 06 — Android SDK</div>
+  <h2>Make the hard parts disappear</h2>
+  <p class="lead">The SDK's job is to make on-device AI feel like any other Jetpack API: coroutine-native, lifecycle-aware, typed, and boring in the best way. A developer should never see Binder, mmap, quantization, or backend names unless they ask.</p>
+  <pre><span class="pre-label">Kotlin · idiomatic, coroutine-first</span><span class="cm">// one-time init — binds to the service, negotiates capabilities</span>
+EdgeLM.<span class="fn">initialize</span>(context)
+
+<span class="cm">// streaming chat — returns a cold Flow, cancels with the coroutine scope</span>
+<span class="kw">val</span> stream = EdgeLM.<span class="fn">chat</span>(<span class="st">"llama-3.2-3b"</span>) {
+    system(<span class="st">"You are concise."</span>)
+    user(prompt)
+    tools(CalendarTool, MapsTool)   <span class="cm">// registered plugins, brokered securely</span>
+    priority = Priority.FOREGROUND
+}
+stream.<span class="fn">collect</span> { token -&gt; ui.append(token) }   <span class="cm">// backpressure honored</span>
+
+<span class="cm">// other modalities — same ergonomics</span>
+<span class="kw">val</span> vec   = EdgeLM.<span class="fn">embed</span>(listOf(docA, docB))          <span class="cm">// List&lt;FloatArray&gt;</span>
+<span class="kw">val</span> text  = EdgeLM.<span class="fn">transcribe</span>(audioUri)                <span class="cm">// speech → text</span>
+<span class="kw">val</span> reply = EdgeLM.<span class="fn">chat</span>(...).<span class="fn">awaitText</span>()             <span class="cm">// non-streaming convenience</span>
+
+<span class="cm">// capabilities &amp; models are observable state, not imperative calls</span>
+EdgeLM.<span class="fn">models</span>().<span class="fn">observe</span> { catalog -&gt; ... }        <span class="cm">// StateFlow of residency</span>
+<span class="kw">if</span> (!EdgeLM.<span class="fn">permissions</span>().<span class="fn">has</span>(Capability.CHAT))
+    EdgeLM.<span class="fn">permissions</span>().<span class="fn">request</span>(Capability.CHAT)      <span class="cm">// launches system consent UI</span></pre>
+
+  <div class="grid g3">
+    <div class="card"><h4>Lifecycle-aware</h4><p>Streams are bound to coroutine scopes and Android lifecycles; navigating away cancels inference and frees KV automatically. No leaked jobs, no zombie GPU work.</p></div>
+    <div class="card"><h4>Declarative models</h4><p><code>ensureModel()</code> expresses intent; the SDK negotiates the best quant/backend for the device. Developers pick a model <em>family</em>, not a file.</p></div>
+    <div class="card"><h4>Graceful capability tiers</h4><p><code>EdgeLM.deviceTier()</code> lets an app adapt: offer a 7B experience on a flagship, a 1B on a budget phone, cloud fallback where allowed.</p></div>
+  </div>
+  <div class="decision"><div class="tl">Decision — thin SDK, thick service</div><p>The SDK holds <strong>no inference logic and no weights</strong> — it's a typed Binder client plus ergonomics (~a few hundred KB). All heavy machinery lives in the shared service. This keeps app size tiny, lets the runtime improve without app updates, and guarantees every app benefits from one place getting faster.</p></div>
+  <div class="tradeoff"><div class="tl">Trade-off — dependency on a system service being present</div><p>A thin SDK means the app is useless if the service is absent (old device, not installed). We mitigate with (a) a Play-delivered service with an install-on-demand flow the SDK triggers, and (b) an optional embedded micro-runtime for a single small model as a last-resort fallback. Default path assumes the shared service; the fallback trades RAM for availability.</p></div>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 7 ============ -->
+<section class="part" id="p7">
+  <div class="kicker">Part 07 — Security &amp; Permission Model</div>
+  <h2>Untrusted apps, private prompts, shared silicon</h2>
+  <p class="lead">EdgeLM sits between mutually-untrusting apps and a shared resource that touches the user's most sensitive data (their prompts) and their most contended resources (RAM, GPU, battery). The security model must prevent one app from reading another's prompts, monopolizing the SoC, or draining the battery — while integrating cleanly with Android's existing permission machinery rather than inventing a parallel universe.</p>
+
+  <h3>Capability-based permissions, brokered by the OS</h3>
+  <p>EdgeLM defines <strong>AI capabilities</strong> as first-class permissions, declared in the manifest and granted through the standard Android consent flow — the same mental model as camera or location.</p>
+  <pre><span class="pre-label">AndroidManifest.xml</span>&lt;uses-permission android:name=<span class="st">"ai.edgelm.CHAT"</span> /&gt;
+&lt;uses-permission android:name=<span class="st">"ai.edgelm.EMBED"</span> /&gt;
+&lt;uses-permission android:name=<span class="st">"ai.edgelm.VISION"</span> /&gt;
+&lt;uses-permission android:name=<span class="st">"ai.edgelm.BACKGROUND_INFERENCE"</span> /&gt;  <span class="cm">// higher-scrutiny</span>
+&lt;edgelm:capability model-class=<span class="st">"llm.small"</span> max-context=<span class="st">"8k"</span> /&gt;</pre>
+  <div class="grid g2">
+    <div class="card"><h4>Who approves what</h4><p>Low-risk read-only capabilities (CHAT, EMBED with the app's own data) are grant-on-first-use with a clear prompt. High-risk ones (BACKGROUND_INFERENCE, plugin access to Calendar/Files, cloud fallback) require explicit, revocable, per-app consent — surfaced in a system "AI permissions" page.</p></div>
+    <div class="card"><h4>Identity via Binder UID</h4><p>Every request carries the kernel-verified caller UID; the permission broker maps UID → package → granted capabilities. An app cannot spoof another's identity because Binder, not the app, stamps the UID.</p></div>
+  </div>
+
+  <h3>Isolation &amp; sandboxing</h3>
+  <ul>
+    <li><strong>Process isolation:</strong> the service runs in its own process/UID (<code>isolatedProcess</code> where possible). Apps never share an address space with the engine or with each other.</li>
+    <li><strong>Prompt isolation:</strong> per-app KV and prompt caches are namespaced by UID and <strong>encrypted at rest</strong> with keys in the Android Keystore / StrongBox. One app's context is never addressable by another.</li>
+    <li><strong>Side-channel hardening:</strong> shared weights are read-only and public, so sharing them leaks nothing; user-derived state is never shared. Cache-timing on shared prefixes is limited to public content only.</li>
+    <li><strong>Resource sandboxing:</strong> per-app quotas on concurrent requests, tokens/sec, GPU time-slices, and an <strong>energy budget</strong> (millijoules/hour) enforced by the scheduler. A malicious app hits its quota and is throttled, not the device.</li>
+  </ul>
+  <div class="decision"><div class="tl">Decision — integrate with Android permissions, add an energy budget primitive</div><p>We reuse Android's permission + Keystore + package infrastructure (trust, not reinvention) and add one genuinely new primitive Android lacks: a <strong>per-app compute/energy budget</strong> for AI, because unbounded local inference is a novel battery-abuse vector the platform doesn't yet police.</p></div>
+  <div class="tradeoff"><div class="tl">Trade-off — consent fatigue vs safety</div><p>Too many prompts and users blind-tap "allow"; too few and abuse slips through. We tier by risk (silent for own-data reads, prompted for cross-app/background/cloud) and give a single legible control surface, accepting that the highest-value capabilities cost one deliberate consent.</p></div>
+  <div class="gap"><div class="tl">◆ Proactive — content firewall for tool calls</div><p>When a model calls a plugin (e.g. <code>files.read</code>), EdgeLM can enforce a <strong>data-flow policy</strong>: content read under a "local-only" capability is tainted and cannot subsequently be sent to a cloud-fallback endpoint without a fresh, explicit user consent. This blocks the subtle exfiltration path where a local model launders private data to the cloud via tool output.</p></div>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 8 ============ -->
+<section class="part" id="p8">
+  <div class="kicker">Part 08 — AI Scheduler</div>
+  <h2>An operating-system scheduler for inference</h2>
+  <p class="lead">When the keyboard, the browser, a background summarizer, and a foreground chat app all want the GPU at once, someone must decide who runs, in what order, at what cost. This is a scheduling problem, and the right references are CPU schedulers and Kubernetes — not request queues. EdgeLM's scheduler provides priorities, fairness, preemption, and battery/thermal awareness.</p>
+
+  <figure>
+    <svg viewBox="0 0 820 250" xmlns="http://www.w3.org/2000/svg" font-family="var(--mono),monospace" font-size="11">
+      <defs><marker id="q1" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#84939B"/></marker></defs>
+      <g text-anchor="middle">
+        <!-- queues -->
+        <g><rect x="20" y="30" width="150" height="34" rx="8" fill="#101a10" stroke="#9BFF3C"/><text x="95" y="52" fill="#9BFF3C">FG · realtime</text></g>
+        <g><rect x="20" y="80" width="150" height="34" rx="8" fill="#14181B" stroke="#2E3941"/><text x="95" y="102" fill="#EEF2F0">Interactive</text></g>
+        <g><rect x="20" y="130" width="150" height="34" rx="8" fill="#14181B" stroke="#2E3941"/><text x="95" y="152" fill="#EEF2F0">Batch / bulk</text></g>
+        <g><rect x="20" y="180" width="150" height="34" rx="8" fill="#14181B" stroke="#2E3941"/><text x="95" y="202" fill="#84939B">Background</text></g>
+        <!-- scheduler core -->
+        <g><rect x="300" y="70" width="190" height="110" rx="12" fill="#161a1d" stroke="#4a3a52"/>
+          <text x="395" y="96" fill="#EEF2F0">Scheduler Core</text>
+          <text x="395" y="118" fill="#84939B" font-size="9.5">weighted fair queue +</text>
+          <text x="395" y="132" fill="#84939B" font-size="9.5">priority + aging</text>
+          <text x="395" y="150" fill="#84939B" font-size="9.5">preempt @ token boundary</text>
+          <text x="395" y="168" fill="#84939B" font-size="9.5">adaptive batching</text>
+        </g>
+        <!-- governors -->
+        <g><rect x="300" y="200" width="90" height="30" rx="7" fill="#1a1614" stroke="#F5C451"/><text x="345" y="220" fill="#F5C451" font-size="10">Thermal gov</text></g>
+        <g><rect x="400" y="200" width="90" height="30" rx="7" fill="#1a1614" stroke="#F5C451"/><text x="445" y="220" fill="#F5C451" font-size="10">Energy gov</text></g>
+        <!-- executors -->
+        <g><rect x="610" y="55" width="90" height="30" rx="7" fill="#101a10" stroke="#9BFF3C"/><text x="655" y="75" fill="#9BFF3C">GPU</text></g>
+        <g><rect x="610" y="105" width="90" height="30" rx="7" fill="#14181B" stroke="#2E3941"/><text x="655" y="125" fill="#EEF2F0">NPU</text></g>
+        <g><rect x="610" y="155" width="90" height="30" rx="7" fill="#14181B" stroke="#2E3941"/><text x="655" y="175" fill="#EEF2F0">CPU pool</text></g>
+      </g>
+      <g stroke="#84939B" fill="none">
+        <path d="M170,47 Q235,60 300,90" marker-end="url(#q1)"/><path d="M170,97 H300" marker-end="url(#q1)"/>
+        <path d="M170,147 Q235,140 300,125" marker-end="url(#q1)"/><path d="M170,197 Q235,180 300,150" marker-end="url(#q1)"/>
+        <path d="M490,95 H610" marker-end="url(#q1)"/><path d="M490,120 H610" marker-end="url(#q1)"/><path d="M490,150 Q560,160 610,168" marker-end="url(#q1)"/>
+      </g>
+      <text x="395" y="248" fill="#84939B" font-size="9.5" text-anchor="middle">governors clamp batch size / clock / backend choice under heat &amp; low battery</text>
+    </svg>
+    <figcaption><b>Fig 8.1</b> — Multi-class scheduler. Jobs enter priority classes; a weighted-fair core picks the next runnable job, preempts at token boundaries, and batches compatible jobs. Thermal/energy governors sit above the executors as hard clamps.</figcaption>
+  </figure>
+
+  <h3>Algorithms &amp; policies</h3>
+  <ul>
+    <li><strong>Priority classes with weighted fair queuing:</strong> foreground-interactive &gt; interactive &gt; batch &gt; background. Within a class, weighted-fair share prevents any one app from starving peers.</li>
+    <li><strong>Preemption at token boundaries:</strong> decode is naturally step-wise — the scheduler can pause a low-priority stream <em>between tokens</em> (KV preserved) to admit a foreground request, then resume. No wasted compute, sub-100ms responsiveness.</li>
+    <li><strong>Aging / starvation prevention:</strong> a job's effective priority rises with wait time, so background work eventually runs even under sustained foreground load.</li>
+    <li><strong>Adaptive continuous batching:</strong> compatible decode steps (same model, same backend) are fused into one batched kernel launch, raising throughput; batch size shrinks under thermal pressure.</li>
+    <li><strong>Foreground acceleration:</strong> the app the user is looking at gets the GPU and a latency SLO; background jobs are steered to NPU/CPU and best-effort.</li>
+    <li><strong>Battery &amp; thermal awareness:</strong> governors translate device state into scheduling constraints — on low battery, background inference is deferred or moved to the most energy-efficient backend; at thermal WARN, GPU slices shrink and work migrates.</li>
+    <li><strong>Cancellation is first-class:</strong> cancel frees KV and slice immediately (Fig 5.1) — essential because users abandon requests constantly on mobile.</li>
+  </ul>
+  <div class="decision"><div class="tl">Decision — token-boundary preemption over time-slice preemption</div><p>Preempting mid-matmul is expensive and messy; preempting between generated tokens is nearly free because the model's state is exactly the KV cache. We make the token the scheduling quantum — an insight that only works because inference is iterative. This gives interactive latency without throughput loss.</p></div>
+  <div class="tradeoff"><div class="tl">Trade-off — throughput vs latency vs battery is a live tension</div><p>Aggressive batching maximizes tokens/sec but hurts p95 latency for interactive apps; energy-optimal placement can be slower. There is no single right answer, so these are <strong>policy weights</strong> (Part 3's selection) tuned per device state, not constants — and exposed to advanced apps via the <code>edge{}</code> envelope.</p></div>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 9 ============ -->
+<section class="part" id="p9">
+  <div class="kicker">Part 09 — Plugin Platform</div>
+  <h2>Giving models safe hands</h2>
+  <p class="lead">A runtime that can only generate text is a curiosity; one that can safely read your calendar, search your files, control your lights, and call an API is a platform. EdgeLM brokers <strong>tool calls</strong> between models and capabilities — calendar, camera, maps, browser, files, notes, home automation, external APIs, and standard <strong>MCP servers</strong> — through a permissioned, sandboxed boundary.</p>
+
+  <h3>Two plugin classes</h3>
+  <table>
+    <tr><th>Class</th><th>Runs where</th><th>Example</th></tr>
+    <tr><td><strong>Capability plugins</strong></td><td>In the <em>owning app's</em> process, exposed via a declared tool schema</td><td>An app exposes <code>notes.search</code> to models it invokes</td></tr>
+    <tr><td><strong>System plugins</strong></td><td>Sandboxed, EdgeLM-brokered, user-granted</td><td>Calendar, Files, Home — shared across apps with per-app consent</td></tr>
+    <tr><td><strong>MCP servers</strong></td><td>Local (in-sandbox) or remote (network-gated)</td><td>Any Model Context Protocol tool; EdgeLM is an MCP host</td></tr>
+  </table>
+
+  <h3>Secure communication &amp; sandboxing</h3>
+  <ul>
+    <li><strong>Everything is a brokered RPC, never a direct call.</strong> A model emits a tool-call intent; the Plugin Broker validates it against the calling app's granted capabilities, executes it in the plugin's sandbox, and returns typed results. The model never touches the plugin directly.</li>
+    <li><strong>Sandboxed execution:</strong> system plugins run in isolated processes with their own permission set; a plugin that reads Files cannot open a socket unless separately granted. Least privilege by construction.</li>
+    <li><strong>Schema-typed &amp; validated:</strong> tool inputs/outputs are JSON-schema-typed; the broker rejects malformed or out-of-policy calls before execution — a model cannot smuggle a <code>rm -rf</code> through a <code>calendar.query</code>.</li>
+    <li><strong>Human-in-the-loop for side effects:</strong> read tools can be auto-approved within consent; <em>write/actuating</em> tools (send message, unlock door, purchase) require a confirmation surface, with a per-app "always allow for this action" option.</li>
+    <li><strong>Network policy:</strong> remote MCP/external-API plugins are the only ones allowed egress, and only under an explicit capability; the data-flow firewall (Part 7) prevents laundering local data outward.</li>
+  </ul>
+  <div class="decision"><div class="tl">Decision — adopt MCP as the native tool protocol</div><p>Rather than invent a proprietary tool interface, EdgeLM speaks <strong>MCP</strong> as a first-class host. This instantly makes the growing MCP ecosystem available on-device and means server authors write once for cloud and edge. We extend MCP only with an on-device <em>capability/consent</em> layer it lacks.</p></div>
+  <div class="tradeoff"><div class="tl">Trade-off — power vs blast radius</div><p>Tool calling turns a text model into an agent that can act — enormously useful, and the largest security surface in the system. We contain it with least-privilege sandboxes, typed schemas, consent for side effects, and taint-tracked data flow, accepting some friction on write actions as the price of safety.</p></div>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 10 ============ -->
+<section class="part" id="p10">
+  <div class="kicker">Part 10 — Model Marketplace (EdgeLM Hub)</div>
+  <h2>Models that "just work" on this device</h2>
+  <p class="lead">The single hardest thing about on-device AI today is picking and provisioning a model that fits <em>this</em> phone. Hub abstracts that away: developers and users request a model <em>family</em>; Hub resolves the right quantization, format, and backend build for the device, verifies it, and streams it down efficiently.</p>
+  <div class="grid g3">
+    <div class="card"><h4>Verified &amp; signed</h4><p>Every model is content-addressed and cryptographically signed; the runtime refuses to load an unsigned or tampered artifact. Provenance and license metadata travel with the weights.</p></div>
+    <div class="card"><h4>Hardware compatibility resolver</h4><p>Hub knows the device SoC, RAM, and accelerators; it serves the variant that fits (e.g. Q4 for 8GB, Q3 + sliding-window for 4GB) rather than a one-size file.</p></div>
+    <div class="card"><h4>Benchmarks &amp; ratings</h4><p>Community + first-party tps/ttft/energy numbers per device class, plus quality ratings — so choice is data-driven, not vibes. Powered by EdgeLM Benchmark (Part 13).</p></div>
+    <div class="card"><h4>Delta updates</h4><p>Model updates ship as binary deltas against the resident version; a fine-tune bump downloads MBs, not GBs. Critical on metered mobile data.</p></div>
+    <div class="card"><h4>Rollback &amp; pinning</h4><p>Signed version history with instant rollback if a new model regresses; apps can pin a known-good version for reproducibility.</p></div>
+    <div class="card"><h4>Automatic optimization</h4><p>On publish, Hub runs quantization + per-SoC kernel compilation server-side, caching artifacts so users never pay compile time (ties to Part 3).</p></div>
+  </div>
+  <div class="decision"><div class="tl">Decision — resolve models like a package manager, not a file host</div><p>Hub behaves like <code>apt</code>/Play for models: request <code>llm.small@latest</code>, get the right build for your device with dependencies (tokenizer, kernels) resolved and signed. This is the difference between "download a GGUF and pray" and a real platform.</p></div>
+  <div class="tradeoff"><div class="tl">Trade-off — curation vs openness</div><p>A fully open registry maximizes selection but invites malicious/broken models; a closed one is safe but slow and gatekept. We run a <strong>verified tier</strong> (signed, benchmarked, scanned) plus an <strong>open tier</strong> (community, clearly labeled, sandboxed, unsigned-load requires developer opt-in) — trust by default, freedom on request.</p></div>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 11 ============ -->
+<section class="part" id="p11">
+  <div class="kicker">Part 11 — Performance Engineering</div>
+  <h2>Optimizations beyond today's runtimes</h2>
+  <p class="lead">Because EdgeLM is a shared, long-lived, cross-app service — not a per-app library — it can exploit optimizations no single-app runtime can even attempt. The shared vantage point is the moat.</p>
+  <div class="grid g2">
+    <div class="card"><h4>Cross-app shared KV &amp; prompt cache</h4><p>Common system prompts and RAG contexts are prefilled once and reused across apps (public content only). Unique to a central service.</p></div>
+    <div class="card"><h4>Speculative + Medusa decoding</h4><p>Shared draft models accelerate every app's decode; multi-head speculative decoding for 2–3× on accepted tokens.</p></div>
+    <div class="card"><h4>Adaptive quantization</h4><p>Precision follows pressure and priority — Q4 foreground, Q3 background, switchable mid-session over a shared KV.</p></div>
+    <div class="card"><h4>Context deduplication</h4><p>Content-addressed prefixes collapse identical contexts across sessions to one physical KV set (COW).</p></div>
+    <div class="card"><h4>Predictive warm-up</h4><p>Usage-pattern prediction pre-warms the model an app is about to need, converting cold starts to warm (Part 4).</p></div>
+    <div class="card"><h4>GPU memory pooling</h4><p>A single service-owned GPU allocator avoids per-app fragmentation and repeated buffer churn; buffers are recycled across requests.</p></div>
+    <div class="card"><h4>Background AOT compilation</h4><p>Kernels compile during charging/idle and cache to disk + Hub; users never wait on first run.</p></div>
+    <div class="card"><h4>Runtime graph optimization</h4><p>Fusion, constant folding, and layout selection at load, specialized to the chosen backend.</p></div>
+  </div>
+  <div class="gap"><div class="tl">◆ Novel optimizations we should own</div>
+    <p><strong>1 · Phase-split placement</strong> — prefill on GPU, decode on NPU/CPU (Part 3), a latency <em>and</em> battery win almost no runtime does.</p>
+    <p><strong>2 · Charge-time precompute</strong> — when plugged in and idle, EdgeLM pre-embeds new documents, pre-warms predicted models, and pre-compiles kernels, so daytime interactions are instant and cool. Treat the charger as free compute.</p>
+    <p><strong>3 · Semantic KV compression</strong> — evict/compress KV by learned importance (attention-sink + salience) rather than pure recency, extending effective context per MB.</p>
+    <p><strong>4 · Federated benchmark-driven autotuning</strong> — anonymous, aggregated per-SoC performance telemetry (no content) continuously refines backend-selection profiles for the whole fleet.</p>
+    <p><strong>5 · Cross-request continuous batching by embedding-similarity</strong> — batch not just same-model requests but semantically similar prefills to maximize kernel occupancy.</p>
+  </div>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 12 ============ -->
+<section class="part" id="p12">
+  <div class="kicker">Part 12 — Future Modalities &amp; Device Classes</div>
+  <h2>One runtime, every modality, every edge</h2>
+  <p class="lead">The architecture was designed so new modalities are new backends + endpoints, not new products. The <code>edge{}</code> envelope, scheduler, and memory manager are modality-agnostic.</p>
+  <table>
+    <tr><th>Modality</th><th>How it slots in</th><th>Horizon</th></tr>
+    <tr><td>Vision (caption, VQA, OCR)</td><td>Vision encoder backend → image parts in chat; shared with LLM via projector</td><td>Near</td></tr>
+    <tr><td>Speech (ASR) &amp; TTS</td><td>ONNX/whisper + TTS backends; streamed audio over shared-mem</td><td>Near</td></tr>
+    <tr><td>Embeddings + RAG</td><td>Embedding backend + on-device vector index as a system plugin</td><td>Near</td></tr>
+    <tr><td>Agents &amp; tool calling</td><td>Responses API + MCP broker (Parts 5, 9)</td><td>Near</td></tr>
+    <tr><td>Image generation</td><td>Diffusion backend, device-tier gated; charge-time precompute friendly</td><td>Mid</td></tr>
+    <tr><td>Video understanding/gen</td><td>Streaming vision backend; heavy — flagship + charge-time only</td><td>Far</td></tr>
+    <tr><td>Wearables / AR glasses</td><td>Thin client to a phone-hosted runtime, or micro-runtime on-device; latency-critical scheduling class</td><td>Mid</td></tr>
+    <tr><td>Cars / IoT / robotics</td><td>Same backend ABI on non-Android edge; real-time class + safety sandboxing</td><td>Far</td></tr>
+  </table>
+  <div class="decision"><div class="tl">Decision — companion-offload for constrained devices</div><p>Glasses and watches can't host large models. EdgeLM defines a <strong>companion protocol</strong>: the wearable's SDK transparently offloads to the paired phone's runtime over BLE/UWB, falling back to a tiny on-device model when disconnected. The developer writes one API; EdgeLM routes to the best available runtime in the user's personal device mesh.</p></div>
+  <div class="gap"><div class="tl">◆ Proactive — a personal, cross-device runtime mesh</div><p>The long-term unlock isn't one device — it's the user's <strong>fleet</strong>. Phone, tablet, laptop, car, and glasses each advertise their runtime + resident models; EdgeLM schedules a request to whichever is best positioned (nearest data, most idle silicon, on charger), privately over the local network. This is the on-device answer to the cloud, and no one owns it yet.</p></div>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 13 ============ -->
+<section class="part" id="p13">
+  <div class="kicker">Part 13 — Developer Platform &amp; Tooling</div>
+  <h2>Raycast-grade tools for on-device AI</h2>
+  <p class="lead">Adoption is won or lost on the debugging loop. EdgeLM ships a full toolchain so developers can see exactly what the runtime is doing — tokens, memory, energy, backend choice — and fix it fast.</p>
+  <div class="grid g3">
+    <div class="card"><h4>EdgeLM CLI</h4><p><code>edgelm pull / run / bench / profile / trace</code>. Scriptable, CI-friendly, the backbone of every other tool.</p></div>
+    <div class="card"><h4>Desktop companion</h4><p>Connect a device over ADB; mirror the runtime dashboard, stream traces, and hot-swap models during development.</p></div>
+    <div class="card"><h4>Inspector</h4><p>Live view of every in-flight request: prompt tokens, KV footprint, chosen backend, tokens/sec, and energy — per app.</p></div>
+    <div class="card"><h4>Profiler</h4><p>Flamegraphs of prefill vs decode, kernel timings, memory-bandwidth saturation, thermal correlation.</p></div>
+    <div class="card"><h4>Benchmark suite</h4><p>Reproducible model × device × backend runs feeding Hub's numbers; a public leaderboard developers trust.</p></div>
+    <div class="card"><h4>Tracing &amp; logs</h4><p>OpenTelemetry-style spans across SDK → service → runtime; structured logs with zero prompt content by default.</p></div>
+    <div class="card"><h4>VS Code extension</h4><p>Inline token counting, model picker, prompt playground, and one-click "run on connected device."</p></div>
+    <div class="card"><h4>Android Studio plugin</h4><p>Manifest capability hints, model-size lint ("this model won't fit the min-spec you target"), and a live inference panel.</p></div>
+    <div class="card"><h4>Replay &amp; diff</h4><p>Capture a session and replay it against a new model/quant to catch quality/perf regressions before shipping.</p></div>
+  </div>
+  <div class="decision"><div class="tl">Decision — tooling is a launch feature, not a v2</div><p>We invest in Inspector/Profiler/CLI <em>from day one</em>. On-device AI fails silently and weirdly (OOM, thermal throttle, wrong backend); without visibility, developers churn. World-class DX is the wedge against every lower-level competitor.</p></div>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 14 ============ -->
+<section class="part" id="p14">
+  <div class="kicker">Part 14 — Application UX</div>
+  <h2>The system app: Linear × Raycast × Material 3</h2>
+  <p class="lead">The EdgeLM app is where users see and control the runtime. It must feel like a premium system utility — calm, dense, legible — not a consumer chatbot. The user's core questions: <em>what's using AI, what's it costing me, and can I trust it?</em></p>
+  <figure>
+    <div style="max-width:720px;margin:0 auto;border:1px solid var(--line2);border-radius:16px;overflow:hidden;background:var(--carbon)">
+      <div style="display:flex;gap:6px;padding:11px 14px;border-bottom:1px solid var(--line)"><i style="width:11px;height:11px;border-radius:50%;background:var(--slate);display:inline-block"></i><i style="width:11px;height:11px;border-radius:50%;background:var(--slate);display:inline-block"></i><i style="width:11px;height:11px;border-radius:50%;background:var(--slate);display:inline-block"></i><span style="font-family:var(--mono);font-size:11px;color:var(--steel);margin-left:8px">EdgeLM · Dashboard</span></div>
+      <div style="display:flex">
+        <div style="width:150px;border-right:1px solid var(--line);padding:14px 10px;font-family:var(--mono);font-size:11px;color:var(--steel);display:flex;flex-direction:column;gap:9px">
+          <span style="color:var(--signal)">◱ Dashboard</span><span>◈ Models</span><span>▾ Downloads</span><span>▤ Benchmarks</span><span>≡ API Activity</span><span>◧ Memory</span><span>🔋 Battery</span><span>▦ GPU</span><span>› Logs</span><span>🔒 Permissions</span><span>⌥ Developer</span><span>⚙ Settings</span>
+        </div>
+        <div style="flex:1;padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div style="border:1px solid var(--line);border-radius:10px;padding:12px"><div style="font-family:var(--mono);font-size:10px;color:var(--steel)">WARM MODELS</div><div style="font-size:22px;font-weight:700;color:var(--mist)">3</div><div style="font-size:10px;color:var(--steel)">llama-3.2-3b · whisper-s · bge-small</div></div>
+          <div style="border:1px solid var(--line);border-radius:10px;padding:12px"><div style="font-family:var(--mono);font-size:10px;color:var(--steel)">TOKENS/SEC (fg)</div><div style="font-size:22px;font-weight:700;color:var(--signal)">42.7</div><div style="font-size:10px;color:var(--steel)">GPU · Adreno 750</div></div>
+          <div style="border:1px solid var(--line);border-radius:10px;padding:12px"><div style="font-family:var(--mono);font-size:10px;color:var(--steel)">RAM (shared)</div><div style="font-size:22px;font-weight:700;color:var(--mist)">2.1<span style="font-size:12px;color:var(--steel)">GB</span></div><div style="height:5px;background:var(--slate);border-radius:3px;margin-top:6px"><div style="width:35%;height:5px;background:var(--volt);border-radius:3px"></div></div></div>
+          <div style="border:1px solid var(--line);border-radius:10px;padding:12px"><div style="font-family:var(--mono);font-size:10px;color:var(--steel)">ENERGY TODAY</div><div style="font-size:22px;font-weight:700;color:var(--amber)">3.4<span style="font-size:12px;color:var(--steel)">%</span></div><div style="font-size:10px;color:var(--steel)">battery · 4 apps</div></div>
+          <div style="grid-column:1/3;border:1px solid var(--line);border-radius:10px;padding:12px"><div style="font-family:var(--mono);font-size:10px;color:var(--steel)">TOP CONSUMERS</div><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--fog);margin-top:6px"><span>Keyboard</span><span style="color:var(--steel)">51%</span></div><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--fog);margin-top:4px"><span>Notes</span><span style="color:var(--steel)">28%</span></div><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--fog);margin-top:4px"><span>Browser</span><span style="color:var(--steel)">21%</span></div></div>
+        </div>
+      </div>
+    </div>
+    <figcaption><b>Fig 14.1</b> — Dashboard concept. Every screen answers a resource question: <b>Memory</b>, <b>Battery</b>, <b>GPU</b>, and <b>API Activity</b> make the invisible runtime legible and trustworthy.</figcaption>
+  </figure>
+  <ul>
+    <li><strong>Dashboard</strong> — warm set, throughput, shared RAM, energy, top consumers at a glance.</li>
+    <li><strong>Models / Downloads</strong> — resident + available models, variants, delta-update progress, pin/rollback.</li>
+    <li><strong>Benchmarks</strong> — this device vs class; per-backend tps/ttft/energy.</li>
+    <li><strong>API Activity</strong> — live request log per app (metadata only), with a kill switch.</li>
+    <li><strong>Memory / Battery / GPU</strong> — resource inspectors with history and per-app attribution.</li>
+    <li><strong>Permissions</strong> — the single control surface for AI capabilities and plugin grants; revoke anything.</li>
+    <li><strong>Developer Mode</strong> — traces, Inspector, backend override, verbose logs, unsigned-model opt-in.</li>
+    <li><strong>Settings</strong> — cloud-fallback policy, energy budgets, default quant tier, privacy controls.</li>
+  </ul>
+  <div class="decision"><div class="tl">Decision — lead with resource transparency, not chat</div><p>The differentiating UX is <strong>trust through visibility</strong>: users can see exactly which app used which model, how much battery it cost, and cut it off. This is what makes a system-level AI service feel safe to grant broad permissions to — and it's the opposite of a black-box chatbot.</p></div>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 15 ============ -->
+<section class="part" id="p15">
+  <div class="kicker">Part 15 — Business Strategy</div>
+  <h2>Open core, monetize the platform</h2>
+  <p class="lead">Infrastructure earns trust by being open and earns revenue by being indispensable at scale. The runtime is free and open to win ubiquity; money comes from the layers around it.</p>
+  <table>
+    <tr><th>Layer</th><th>License / model</th><th>Rationale</th></tr>
+    <tr><td>Runtime + core SDK</td><td><strong>Apache-2.0, free forever</strong></td><td>Trust anchor + adoption engine; must be forkable to be trusted as infra</td></tr>
+    <tr><td>EdgeLM Hub (verified tier)</td><td>Free for devs; rev-share on premium/licensed models</td><td>Marketplace take-rate scales with ecosystem</td></tr>
+    <tr><td>Studio / advanced DevTools</td><td>Free core; Pro subscription</td><td>Teams pay for collaboration, replay, fleet profiling</td></tr>
+    <tr><td>Cloud fallback</td><td>Metered usage</td><td>Local-first, cloud-billed overflow — aligned incentive (we profit when local can't)</td></tr>
+    <tr><td>Enterprise</td><td>Annual license + support SLA</td><td>Private registry, fleet policy, SSO, audit, compliance — the ACV driver</td></tr>
+    <tr><td>SDK for commercial embedding</td><td>Permissive; optional commercial support</td><td>No friction for indie devs; support contracts for those who want them</td></tr>
+  </table>
+  <div class="decision"><div class="tl">Decision — never monetize the inference path with ads</div><p>The runtime that sees every prompt must never have an incentive to exploit them. Revenue comes from teams, scale, and the marketplace — <strong>never</strong> from content, ads, or selling telemetry. This is a strategic promise as much as an ethical one: it's what earns the permission to be the shared, trusted layer.</p></div>
+  <div class="tradeoff"><div class="tl">Trade-off — open runtime invites free-riders (incl. OEMs)</div><p>An Apache runtime means Google or an OEM could bundle their own build. We treat that as distribution, not threat: our moat is Hub (models + benchmarks), DevTools, the cross-device mesh, and the developer relationship — none of which fork with the code. Openness maximizes the surface we monetize around.</p></div>
+  <hr class="soft">
+</section>
+
+<!-- ============ PART 16 ============ -->
+<section class="part" id="p16">
+  <div class="kicker">Part 16 — Roadmap</div>
+  <h2>From MVP to the Android standard</h2>
+  <p class="lead">Sequenced to prove the hard technical bet first (shared runtime, real perf), then build the platform, then earn the standard. Each phase is gated on a measurable milestone, not a date.</p>
+  <div style="position:relative;margin-top:20px;padding-left:26px">
+    <div style="position:absolute;left:6px;top:6px;bottom:6px;width:2px;background:linear-gradient(var(--signal),var(--volt))"></div>
+    <div style="position:relative;margin-bottom:22px"><div style="position:absolute;left:-26px;top:4px;width:14px;height:14px;border-radius:50%;background:var(--obsidian);border:2px solid var(--signal)"></div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--volt)">PHASE 0 · MVP</div><h4 style="margin:2px 0 4px;color:var(--mist);font-family:inherit">Prove the shared runtime</h4>
+      <p style="font-size:14px"><strong>Tech:</strong> single-service inference, llama.cpp + Vulkan, mmap sharing, Binder API, one flagship SoC. <strong>Product:</strong> demo app + Inspector. <strong>Ecosystem:</strong> 3–5 design-partner apps. <strong>Gate:</strong> two apps sharing one in-memory model at &gt;30 tok/s.</p></div>
+    <div style="position:relative;margin-bottom:22px"><div style="position:absolute;left:-26px;top:4px;width:14px;height:14px;border-radius:50%;background:var(--obsidian);border:2px solid var(--signal)"></div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--volt)">PHASE 1 · BETA</div><h4 style="margin:2px 0 4px;color:var(--mist);font-family:inherit">Open the platform</h4>
+      <p style="font-size:14px"><strong>Tech:</strong> scheduler, permission model, KV paging, MLC backend, OpenAI HTTP shim. <strong>Product:</strong> Hub v1, CLI, SDK 1.0, system app. <strong>Ecosystem:</strong> open-source runtime, public docs. <strong>Gate:</strong> 5-minute integration; first non-partner apps in production.</p></div>
+    <div style="position:relative;margin-bottom:22px"><div style="position:absolute;left:-26px;top:4px;width:14px;height:14px;border-radius:50%;background:var(--obsidian);border:2px solid var(--signal)"></div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--volt)">PHASE 2 · v1.0</div><h4 style="margin:2px 0 4px;color:var(--mist);font-family:inherit">Production-grade &amp; multimodal</h4>
+      <p style="font-size:14px"><strong>Tech:</strong> vision/speech/embeddings, MCP + tools, QNN NPU backend, thermal/energy governors, delta updates. <strong>Product:</strong> Studio, benchmarks leaderboard, marketplace. <strong>Ecosystem:</strong> hundreds of apps, model publishers. <strong>Gate:</strong> apps depend on EdgeLM in the Play Store.</p></div>
+    <div style="position:relative;margin-bottom:22px"><div style="position:absolute;left:-26px;top:4px;width:14px;height:14px;border-radius:50%;background:var(--obsidian);border:2px solid var(--volt)"></div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--volt)">PHASE 3 · ENTERPRISE &amp; SCALE</div><h4 style="margin:2px 0 4px;color:var(--mist);font-family:inherit">Fleet, policy, cross-device</h4>
+      <p style="font-size:14px"><strong>Tech:</strong> private registry, cloud fallback, device mesh (companion offload), federated autotuning. <strong>Product:</strong> Enterprise console, SSO/audit, support SLAs. <strong>Ecosystem:</strong> OEM &amp; enterprise pilots. <strong>Gate:</strong> a regulated org standardizes on EdgeLM.</p></div>
+    <div style="position:relative"><div style="position:absolute;left:-26px;top:4px;width:14px;height:14px;border-radius:50%;background:var(--obsidian);border:2px solid var(--volt)"></div>
+      <div style="font-family:var(--mono);font-size:12px;color:var(--volt)">PHASE 4 · THE STANDARD</div><h4 style="margin:2px 0 4px;color:var(--mist);font-family:inherit">The default AI runtime for Android — and beyond</h4>
+      <p style="font-size:14px"><strong>Tech:</strong> cross-platform backend ABI (wearables, auto, IoT), on-device fine-tuning, agent orchestration. <strong>Product:</strong> ambient runtime mesh. <strong>Ecosystem:</strong> OEM pre-install, "Built on EdgeLM" as a badge. <strong>Gate:</strong> "add AI" means "call EdgeLM."</p></div>
+  </div>
+
+  <div class="decision" style="margin-top:26px"><div class="tl">Closing thesis</div><p>EdgeLM is a bet that <strong>on-device inference is an operating-system responsibility</strong>, not an application one — and that whoever builds the shared runtime, the model package manager, and the developer tooling first will own the platform layer for the next era of mobile computing. The technical wedge is memory sharing and scheduling that only a central service can do; the strategic wedge is OpenAI-compatibility and world-class DX; the moat is Hub, tooling, and the cross-device mesh. We ship the runtime open, earn ubiquity, and build the business around it.</p></div>
+</section>
+
+<div class="foot">
+  <div style="font-family:var(--mono)">EdgeLM · Engineering Design Document · Draft for architecture review</div>
+  <p class="disc">Forward-looking systems design. Performance figures, device names, and timelines are illustrative targets for planning, not measured results or commitments. "OpenAI-compatible" denotes API-shape compatibility only; EdgeLM is not affiliated with OpenAI, Google, Qualcomm, MediaTek, Samsung, Apple, or any named project. References to third-party engines (llama.cpp, MLC, ONNX Runtime, etc.) describe integration intent under their respective licenses.</p>
+</div>
+  <!-- CONTENT_END --></div>
+</main>
+</div>
+<a href="#" class="top">↑</a>
+<script>
+  // scrollspy
+  const links=[...document.querySelectorAll('.toc a')];
+  const map=new Map(links.map(a=>[a.getAttribute('href').slice(1),a]));
+  const obs=new IntersectionObserver((es)=>{
+    es.forEach(e=>{if(e.isIntersecting){links.forEach(l=>l.classList.remove('active'));const a=map.get(e.target.id);if(a){a.classList.add('active');}}});
+  },{rootMargin:'-10% 0px -80% 0px',threshold:0});
+  document.querySelectorAll('.part').forEach(p=>obs.observe(p));
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Loopback ServerSocket for the OpenAI-compatible HTTP shim (127.0.0.1:1408). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="EdgeLM Runtime"
+        android:allowBackup="false">
+
+        <!--
+          The shared runtime. Runs in its OWN process (:core) so that model
+          weights mmap'd here are shared across every bound app via the OS
+          page cache — the crux of the Phase 0 thesis.
+
+          exported=true so other apps' processes can bind. In Phase 1 this is
+          gated by a signature/permission; Phase 0 leaves it open for the spike.
+        -->
+        <service
+            android:name="ai.edgelm.service.EdgeLMService"
+            android:process=":core"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="ai.edgelm.BIND_RUNTIME" />
+            </intent-filter>
+        </service>
+
+    </application>
+</manifest>

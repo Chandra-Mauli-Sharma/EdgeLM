@@ -1,0 +1,15 @@
+<svg width="64" height="64" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EdgeLM favicon">
+  <defs>
+    <linearGradient id="sigF" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#B6FF5A"/><stop offset="1" stop-color="#7CEB1E"/>
+    </linearGradient>
+  </defs>
+  <path d="M104,0 L362,0 L512,150 L512,408 A104,104 0 0 1 408,512 L104,512 A104,104 0 0 1 0,408 L0,104 A104,104 0 0 1 104,0 Z" fill="#0B0E10"/>
+  <!-- simplified bold E for small sizes, no spark to stay legible -->
+  <g fill="url(#sigF)">
+    <rect x="150" y="140" width="54" height="232" rx="27"/>
+    <rect x="150" y="140" width="212" height="54" rx="27"/>
+    <rect x="150" y="229" width="150" height="54" rx="27"/>
+    <rect x="150" y="318" width="212" height="54" rx="27"/>
+  </g>
+</svg>

@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeLM — Brand Book & Product Strategy</title>
+<link rel="icon" href="assets/edgelm-favicon.svg">
+<style>
+  :root{
+    --obsidian:#0B0E10; --carbon:#14181B; --slate:#1E262B; --line:#252D33;
+    --signal:#9BFF3C; --signal-deep:#7CEB1E; --volt:#2DE3FF;
+    --mist:#F5F7F6; --fog:#B9C4C9; --steel:#7C8A93; --ink:#0B0E10;
+    --radius:16px; --maxw:1080px;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --mono:'JetBrains Mono','SF Mono',ui-monospace,'Cascadia Code',Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--obsidian);color:var(--mist);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--signal);color:var(--ink)}
+  /* background grid */
+  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:64px 64px;opacity:.15;mask-image:radial-gradient(circle at 50% 0%,#000,transparent 75%)}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px;position:relative;z-index:1}
+
+  /* NAV */
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);background:rgba(11,14,16,.72);border-bottom:1px solid var(--line)}
+  .nav-inner{max-width:var(--maxw);margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:22px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.5px;font-size:19px}
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--volt);box-shadow:0 0 12px var(--volt)}
+  .nav-links{display:flex;gap:18px;margin-left:auto;font-size:13.5px;color:var(--steel);flex-wrap:wrap}
+  .nav-links a:hover{color:var(--signal)}
+  .pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12px;color:var(--fog);font-family:var(--mono)}
+
+  /* HERO */
+  header{padding:96px 0 72px;text-align:center}
+  .badge{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--carbon);border-radius:999px;padding:7px 16px;font-size:12.5px;font-family:var(--mono);color:var(--signal);margin-bottom:28px}
+  h1{font-size:clamp(40px,7vw,76px);font-weight:800;letter-spacing:-3px;line-height:1.02;margin-bottom:22px}
+  h1 .g{background:linear-gradient(120deg,var(--signal),var(--volt));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{font-size:clamp(17px,2.4vw,21px);color:var(--fog);max-width:640px;margin:0 auto 36px}
+  .cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+  .btn{font-family:var(--mono);font-size:14px;font-weight:600;padding:13px 22px;border-radius:12px;border:1px solid transparent;cursor:pointer;transition:.18s;display:inline-flex;align-items:center;gap:9px}
+  .btn-p{background:var(--signal);color:var(--ink)}
+  .btn-p:hover{box-shadow:0 0 0 4px rgba(155,255,60,.18);transform:translateY(-1px)}
+  .btn-s{background:var(--carbon);border-color:var(--line);color:var(--mist)}
+  .btn-s:hover{border-color:var(--signal);color:var(--signal)}
+
+  /* SECTIONS */
+  section{padding:72px 0;border-top:1px solid var(--line)}
+  .kicker{font-family:var(--mono);font-size:12.5px;color:var(--volt);letter-spacing:1px;text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;gap:10px}
+  .kicker::before{content:"";width:26px;height:1px;background:var(--volt)}
+  h2{font-size:clamp(28px,4vw,42px);font-weight:800;letter-spacing:-1.5px;margin-bottom:16px}
+  h3{font-size:19px;font-weight:700;letter-spacing:-.4px;margin:26px 0 10px}
+  h4{font-size:15px;font-weight:700;color:var(--mist);margin:18px 0 6px}
+  p{color:var(--fog);margin-bottom:12px}
+  .lead{font-size:18px;color:var(--fog);max-width:720px;margin-bottom:8px}
+  strong{color:var(--mist)}
+  code{font-family:var(--mono);background:var(--carbon);border:1px solid var(--line);border-radius:6px;padding:2px 6px;font-size:.86em;color:var(--signal)}
+
+  .grid{display:grid;gap:18px}
+  .g2{grid-template-columns:repeat(2,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:820px){.g2,.g3,.g4{grid-template-columns:1fr}}
+  .card{background:var(--carbon);border:1px solid var(--line);border-radius:var(--radius);padding:22px;transition:.18s}
+  .card:hover{border-color:#33413f;transform:translateY(-2px)}
+  .card .ic{width:38px;height:38px;border-radius:10px;background:var(--slate);display:flex;align-items:center;justify-content:center;margin-bottom:14px;font-size:20px;border:1px solid var(--line)}
+  .card h4{margin-top:0}
+  .card p{font-size:14px;margin:0}
+
+  ul.clean{list-style:none;display:flex;flex-direction:column;gap:9px;margin:10px 0}
+  ul.clean li{padding-left:24px;position:relative;color:var(--fog);font-size:14.5px}
+  ul.clean li::before{content:"";position:absolute;left:0;top:9px;width:9px;height:9px;border-radius:2px;background:var(--signal)}
+  ul.clean li strong{color:var(--mist)}
+
+  /* code block */
+  pre{background:#0E1214;border:1px solid var(--line);border-radius:12px;padding:20px;overflow:auto;font-family:var(--mono);font-size:13px;line-height:1.7;margin:16px 0}
+  pre .cm{color:var(--steel)} pre .kw{color:var(--volt)} pre .st{color:var(--signal)} pre .fn{color:#F5D76E}
+
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+  th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-family:var(--mono);font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--steel)}
+  td strong{color:var(--signal)}
+
+  /* swatches */
+  .swatches{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin:20px 0}
+  @media(max-width:820px){.swatches{grid-template-columns:repeat(3,1fr)}}
+  .sw{border-radius:12px;overflow:hidden;border:1px solid var(--line)}
+  .sw .chip{height:76px} .sw .meta{padding:9px 11px;background:var(--carbon)}
+  .sw .meta b{display:block;font-size:13px} .sw .meta span{font-family:var(--mono);font-size:11px;color:var(--steel)}
+
+  /* type specimen */
+  .type-row{border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:12px;background:var(--carbon);display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap}
+  .type-row .lbl{font-family:var(--mono);font-size:11px;color:var(--steel)}
+
+  /* tagline chips */
+  .taglines{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+  .tag{border:1px solid var(--line);background:var(--carbon);border-radius:10px;padding:9px 14px;font-size:13.5px;transition:.15s;cursor:default}
+  .tag:hover{border-color:var(--signal);color:var(--signal);transform:translateY(-2px)}
+  .tag.star{border-color:rgba(155,255,60,.35)}
+
+  /* logo showcase */
+  .logo-stage{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:18px 0}
+  @media(max-width:820px){.logo-stage{grid-template-columns:1fr}}
+  .stage{border:1px solid var(--line);border-radius:14px;padding:34px;display:flex;align-items:center;justify-content:center;min-height:150px}
+  .stage.dark{background:var(--obsidian)} .stage.light{background:var(--mist)}
+  .stage img{max-width:100%;height:auto}
+  .icon-row{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:6px}
+  .icon-row img{border-radius:22%;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+
+  /* website wireframe */
+  .wire{border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:16px 0;background:var(--carbon)}
+  .wire .bar{display:flex;gap:6px;padding:11px 14px;border-bottom:1px solid var(--line)}
+  .wire .bar i{width:11px;height:11px;border-radius:50%;background:var(--slate)}
+  .wire .body{padding:22px}
+  .wire .row{border:1px dashed var(--line);border-radius:10px;padding:14px;margin-bottom:10px;font-family:var(--mono);font-size:12.5px;color:var(--steel)}
+  .wire .row b{color:var(--fog);font-family:var(--sans)}
+
+  .callout{border-left:3px solid var(--signal);background:linear-gradient(90deg,rgba(155,255,60,.06),transparent);padding:16px 20px;border-radius:0 12px 12px 0;margin:18px 0}
+  .callout .lead{margin:0;font-size:16px;color:var(--mist)}
+
+  .roadmap{position:relative;margin-top:10px;padding-left:26px}
+  .roadmap::before{content:"";position:absolute;left:6px;top:6px;bottom:6px;width:2px;background:linear-gradient(var(--signal),var(--volt))}
+  .rm{position:relative;margin-bottom:22px}
+  .rm::before{content:"";position:absolute;left:-26px;top:4px;width:14px;height:14px;border-radius:50%;background:var(--obsidian);border:2px solid var(--signal)}
+  .rm .ph{font-family:var(--mono);font-size:12px;color:var(--volt)}
+  .rm h4{margin:2px 0 4px}
+
+  footer{border-top:1px solid var(--line);padding:48px 0 60px;text-align:center;color:var(--steel);font-size:13px}
+  footer .brand{justify-content:center;margin-bottom:14px}
+  .foot-links{display:flex;gap:20px;justify-content:center;flex-wrap:wrap;margin:16px 0;font-family:var(--mono);font-size:12.5px}
+  .foot-links a:hover{color:var(--signal)}
+  .disc{max-width:560px;margin:14px auto 0;font-size:11.5px;color:#4a565c}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <div class="brand">Edge<span style="color:var(--signal)">LM</span><span class="dot"></span></div>
+    <div class="nav-links">
+      <a href="#identity">Identity</a>
+      <a href="#logo">Logo</a>
+      <a href="#visual">Visual</a>
+      <a href="#taglines">Taglines</a>
+      <a href="#website">Website</a>
+      <a href="#dev">Developers</a>
+      <a href="#market">Launch</a>
+      <a href="#compete">Compare</a>
+      <a href="#ecosystem">Ecosystem</a>
+      <a href="#roadmap">Roadmap</a>
+    </div>
+  </div>
+</nav>
+
+<header class="wrap">
+  <div class="badge">◆ THE ANDROID AI RUNTIME</div>
+  <h1>Run <span class="g">any model</span>,<br>right on the device.</h1>
+  <p class="sub">EdgeLM is a local AI runtime for Android — the missing system service that lets any app run LLMs, vision, speech, and embeddings on-device through a secure, OpenAI-compatible local API. Zero cloud by default.</p>
+  <div class="cta">
+    <button class="btn btn-p">$ install edgelm</button>
+    <button class="btn btn-s">Read the docs →</button>
+  </div>
+  <div style="margin-top:30px;display:flex;gap:20px;justify-content:center;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--steel)">
+    <span class="pill">◱ On-device</span><span class="pill">⚡ GPU / NPU</span><span class="pill">🔋 Battery-aware</span><span class="pill">🔒 Private</span><span class="pill">◈ MCP + Tools</span>
+  </div>
+</header>
+
+<!-- 1. BRAND IDENTITY -->
+<section id="identity" class="wrap">
+  <div class="kicker">01 — Brand Identity</div>
+  <h2>The infrastructure layer for on-device AI</h2>
+  <p class="lead">EdgeLM isn't an AI app. It's the runtime everything else is built on — a shared, system-level service that makes local intelligence a native capability of the phone.</p>
+
+  <div class="grid g2" style="margin-top:26px">
+    <div class="card"><h4>Mission</h4><p>To make on-device AI a native capability of every mobile platform — so any developer can ship intelligent, private, offline-first apps without shipping an inference engine or renting a cloud GPU.</p></div>
+    <div class="card"><h4>Vision</h4><p>A world where AI runs where your data lives. Billions of devices each running a shared local runtime — the "AI operating system" layer that sits between silicon and software, the way the graphics stack sits under every game.</p></div>
+  </div>
+
+  <h3>Core values</h3>
+  <div class="grid g3">
+    <div class="card"><div class="ic">◱</div><h4>Local by default</h4><p>The device is the datacenter. Cloud is an opt-in fallback, never a requirement.</p></div>
+    <div class="card"><div class="ic">🔒</div><h4>Privacy is architecture</h4><p>Data never leaves the device unless the user says so. Privacy isn't a setting — it's the default topology.</p></div>
+    <div class="card"><div class="ic">◈</div><h4>Infrastructure, not apps</h4><p>We build the boring, load-bearing layer so others build the magic on top.</p></div>
+    <div class="card"><div class="ic">⚡</div><h4>Ruthless performance</h4><p>Every millisecond and milliamp counts. On mobile, efficiency is the product.</p></div>
+    <div class="card"><div class="ic">◇</div><h4>Open standards</h4><p>OpenAI-compatible, MCP-native, no lock-in. Interoperability earns trust.</p></div>
+    <div class="card"><div class="ic">△</div><h4>Developer-first</h4><p>If it takes more than five minutes to first token, we failed.</p></div>
+  </div>
+
+  <div class="grid g2" style="margin-top:22px">
+    <div class="card">
+      <h4>Brand personality</h4>
+      <p>Precise, calm, and quietly confident — the engineer in the room who has already solved the hard part. Technical without being cold. Premium without being flashy. EdgeLM behaves like a system primitive: dependable, invisible, and everywhere.</p>
+    </div>
+    <div class="card">
+      <h4>Brand voice</h4>
+      <p>Clear, declarative, and benchmark-backed. Short sentences. Verbs over adjectives. We show numbers, not adjectives; code, not claims. We never hype — we demonstrate. Think Vercel's clarity, Linear's restraint, Stripe's precision.</p>
+    </div>
+  </div>
+
+  <h3>Positioning statement</h3>
+  <div class="callout"><p class="lead">For Android developers building AI-powered apps, EdgeLM is the on-device AI runtime that runs LLMs, vision, and speech models locally through a secure, OpenAI-compatible API — so unlike cloud APIs or embedded inference libraries, apps get private, offline, zero-cost intelligence without shipping their own engine.</p></div>
+
+  <div class="grid g2">
+    <div class="card"><h4>One-line description</h4><p style="color:var(--mist);font-size:16px"><em>EdgeLM is the Android AI Runtime — a shared, on-device platform that lets any app run AI models locally through a secure OpenAI-compatible API.</em></p></div>
+    <div class="card"><h4>Elevator pitch</h4><p>Every app wants AI, but each one ships its own bloated inference engine or pipes user data to a cloud that costs money and leaks privacy. EdgeLM is a system-level runtime for Android — install once, and every app can call local LLMs, vision, speech, and embeddings through a familiar OpenAI-compatible API. It's Docker + Ollama for the phone: one shared runtime, GPU-accelerated, battery-aware, private by default. Developers ship intelligence without shipping infrastructure.</p></div>
+  </div>
+
+  <h3>Company manifesto</h3>
+  <div class="card" style="border-color:rgba(155,255,60,.25)">
+    <p style="color:var(--mist)">The last decade sent your data to the cloud. The next one brings intelligence back home.</p>
+    <p>Your phone is a supercomputer. It has a neural engine, a GPU, and gigabytes of memory that sit idle while a server farm on another continent answers questions about your own life — slowly, expensively, and by permission.</p>
+    <p>We think that's backwards. Intelligence should run where your data already is: on the device, in your pocket, under your control. Not because the cloud is evil, but because local is <strong>faster, cheaper, more private, and it works on a plane.</strong></p>
+    <p>But building on-device AI today is brutal. Every team reinvents the same inference stack, fights the same memory limits, drains the same battery, and ships the same 400MB engine — five times, in five apps, on one phone.</p>
+    <p>So we're building the layer that should have existed already: a shared runtime that belongs to the platform, not the app. Install it once. Any app can use it. Models are downloaded once and shared. The GPU is scheduled fairly. The battery is respected. Permissions are enforced. And the API is one every developer already knows.</p>
+    <p style="color:var(--signal)"><strong>EdgeLM is the missing system service for the age of local AI. Run AI. Anywhere.</strong></p>
+  </div>
+</section>
+
+<!-- 2. NAMING -->
+<section id="naming" class="wrap">
+  <div class="kicker">02 — Naming Analysis</div>
+  <h2>Is "EdgeLM" a strong name?</h2>
+  <p class="lead">Short answer: yes — for a developer-infrastructure brand. It's technically credible, self-describing, and ownable. It has one real weakness we address deliberately.</p>
+
+  <table>
+    <tr><th>Criterion</th><th>Verdict</th><th>Notes</th></tr>
+    <tr><td>Memorability</td><td><strong>Strong</strong></td><td>Two syllables of meaning: "Edge" (on-device / edge compute) + "LM" (language models). Sticks after one read.</td></tr>
+    <tr><td>Technical credibility</td><td><strong>Very strong</strong></td><td>"Edge" is the accepted term for on-device compute; "LM" signals the model era. Reads as serious infra to engineers.</td></tr>
+    <tr><td>Scalability</td><td><strong>Good</strong></td><td>"LM" risks sounding text-only, but we run vision/speech/embeddings too. Position "LM" as "Local Models," not "Language Models," to future-proof.</td></tr>
+    <tr><td>Consumer friendliness</td><td><strong>Medium</strong></td><td>Slightly technical for pure consumers — but EdgeLM is a developer/infra brand first, so this is acceptable and on-strategy.</td></tr>
+    <tr><td>Global pronunciation</td><td><strong>Good</strong></td><td>"Edge-L-M" is unambiguous across languages. No silent letters, no locale traps.</td></tr>
+    <tr><td>Future-proofing</td><td><strong>Good</strong></td><td>Reframe "LM" as "Local Models" and the name survives beyond the LLM wave. Domain/handle availability should be verified early.</td></tr>
+  </table>
+  <div class="callout"><p class="lead"><strong>Recommendation:</strong> Keep EdgeLM as the primary name. Officially gloss it as "Edge · Local Models" so it scales past text. Lock <code>edgelm.dev</code> / <code>edgelm.ai</code> and the <code>@edgelm</code> handles.</p></div>
+
+  <h3>20 alternatives (EdgeLM remains primary)</h3>
+  <div class="grid g4">
+    <div class="card" style="padding:14px"><h4 style="margin:0">Localhost AI</h4><p style="font-size:12.5px">Dev-native metaphor</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Onnix / Onyx</h4><p style="font-size:12.5px">Premium, on-device</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Nomos</h4><p style="font-size:12.5px">"No mo(re) cloud"</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Corelet</h4><p style="font-size:12.5px">Small core runtime</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Silica</h4><p style="font-size:12.5px">Silicon-close</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Nucleus</h4><p style="font-size:12.5px">System core</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Runlocal</h4><p style="font-size:12.5px">Literal + clear</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Anvil</h4><p style="font-size:12.5px">Foundation layer</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Substrate</h4><p style="font-size:12.5px">Infra connotation</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Neuron OS</h4><p style="font-size:12.5px">AI-OS framing</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Portal</h4><p style="font-size:12.5px">Local gateway</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Kernel AI</h4><p style="font-size:12.5px">System-service vibe</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Tensorhub</h4><p style="font-size:12.5px">Model hub angle</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Modeld</h4><p style="font-size:12.5px">Unix daemon feel</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Loco</h4><p style="font-size:12.5px">"Local" + engine</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Halo Runtime</h4><p style="font-size:12.5px">Premium halo</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Forge AI</h4><p style="font-size:12.5px">Builder energy</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Edged</h4><p style="font-size:12.5px">Edge daemon</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Vertex Local</h4><p style="font-size:12.5px">Enterprise tone</p></div>
+    <div class="card" style="padding:14px"><h4 style="margin:0">Pocket Runtime</h4><p style="font-size:12.5px">Consumer-friendly</p></div>
+  </div>
+</section>
+
+<!-- 3. LOGO -->
+<section id="logo" class="wrap">
+  <div class="kicker">03 — Logo Concept</div>
+  <h2>A chip die with a spark of local intelligence</h2>
+  <p class="lead">The mark is a rounded chip tile with a single clipped corner — the silicon-die "notch" that gives EdgeLM its <em>edge</em>. Inside sits an <strong>E</strong> built from a stack of layers (model → runtime → app), with a cyan spark marking the moment of on-device inference.</p>
+
+  <div class="logo-stage">
+    <div class="stage light"><img src="assets/edgelm-logo-light.svg" alt="EdgeLM logo light"></div>
+    <div class="stage dark"><img src="assets/edgelm-logo-dark.svg" alt="EdgeLM logo dark"></div>
+  </div>
+
+  <div class="grid g2">
+    <div class="card">
+      <h4>Symbolism &amp; shapes</h4>
+      <ul class="clean">
+        <li><strong>Clipped corner</strong> = the silicon-die notch → "edge" / on-device compute.</li>
+        <li><strong>Layered E</strong> = the runtime stack: models, runtime, apps.</li>
+        <li><strong>Cyan spark</strong> = a token generated locally — intelligence at the source.</li>
+        <li><strong>Rounded tile</strong> = an Android system service / app icon primitive.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Typography &amp; construction</h4>
+      <ul class="clean">
+        <li>Wordmark set in a geometric grotesque, <strong>-3 letter-spacing</strong>, weight 700.</li>
+        <li><strong>"Edge"</strong> in ink/white, <strong>"LM"</strong> in Signal Green — the accent carries the meaning.</li>
+        <li>Mark and wordmark share a strict 8px grid; clear-space = height of the tile.</li>
+        <li>Minimum sizes: mark 24px, favicon 16px (spark drops for legibility).</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Icon system</h3>
+  <div class="grid g4" style="align-items:center">
+    <div class="card" style="text-align:center"><img src="assets/edgelm-app-icon.svg" width="96" style="border-radius:22%"><p style="margin-top:12px;font-size:13px">App icon</p></div>
+    <div class="card" style="text-align:center"><img src="assets/edgelm-adaptive-icon.svg" width="96" style="border-radius:50%"><p style="margin-top:12px;font-size:13px">Adaptive (108dp, safe-zone)</p></div>
+    <div class="card" style="text-align:center"><img src="assets/edgelm-favicon.svg" width="48"><p style="margin-top:12px;font-size:13px">Favicon (16–48px)</p></div>
+    <div class="card" style="text-align:center"><div style="background:var(--mist);border-radius:14px;padding:20px"><img src="assets/edgelm-favicon.svg" width="48"></div><p style="margin-top:12px;font-size:13px">On light surface</p></div>
+  </div>
+  <p style="margin-top:14px;font-size:13.5px">The <strong>adaptive icon</strong> ships as separate foreground (glyph, kept inside the 66dp safe circle) and background (carbon gradient + circuit texture) layers so Android can mask it to any device shape. The <strong>favicon</strong> drops the spark and thickens strokes to stay crisp at 16px.</p>
+</section>
+
+<!-- 4. VISUAL IDENTITY -->
+<section id="visual" class="wrap">
+  <div class="kicker">04 — Visual Identity</div>
+  <h2>Minimal, technical, premium</h2>
+  <p class="lead">A dark-first design language inspired by Linear's restraint, Vercel's clarity, Raycast's polish, and Material 3's structure — engineered to feel like developer tooling, not a consumer app.</p>
+
+  <h3>Color — primary &amp; secondary</h3>
+  <div class="swatches">
+    <div class="sw"><div class="chip" style="background:#0B0E10"></div><div class="meta"><b>Obsidian</b><span>#0B0E10</span></div></div>
+    <div class="sw"><div class="chip" style="background:#14181B"></div><div class="meta"><b>Carbon</b><span>#14181B</span></div></div>
+    <div class="sw"><div class="chip" style="background:#1E262B"></div><div class="meta"><b>Slate</b><span>#1E262B</span></div></div>
+    <div class="sw"><div class="chip" style="background:#9BFF3C"></div><div class="meta"><b>Signal Green</b><span>#9BFF3C</span></div></div>
+    <div class="sw"><div class="chip" style="background:#2DE3FF"></div><div class="meta"><b>Volt Cyan</b><span>#2DE3FF</span></div></div>
+    <div class="sw"><div class="chip" style="background:#F5F7F6"></div><div class="meta"><b>Mist</b><span>#F5F7F6</span></div></div>
+  </div>
+  <p style="font-size:13.5px"><strong>Signal Green</strong> is the hero — energy, "go," battery-efficient local compute. <strong>Volt Cyan</strong> is the secondary accent for links, sparks, and gradients. Neutrals (Obsidian → Carbon → Slate) build depth; <strong>Steel #7C8A93</strong> and <strong>Fog #B9C4C9</strong> handle muted and body text. Green is used sparingly — a highlighter, never a wall of paint.</p>
+
+  <h3>Typography</h3>
+  <div class="type-row"><span style="font-size:34px;font-weight:800;letter-spacing:-1.5px">Inter Display</span><span class="lbl">HEADINGS · 700–800 · tight tracking</span></div>
+  <div class="type-row"><span style="font-size:18px">Inter — body copy set at a comfortable 16–18px with generous line-height for docs.</span><span class="lbl">BODY · 400–500</span></div>
+  <div class="type-row"><span style="font-family:var(--mono);font-size:15px;color:var(--signal)">JetBrains Mono — code, API, benchmarks</span><span class="lbl">MONO · 400–600</span></div>
+
+  <h3>Components</h3>
+  <div class="grid g3">
+    <div class="card">
+      <h4>Buttons</h4>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:6px">
+        <button class="btn btn-p" style="justify-content:center">Primary</button>
+        <button class="btn btn-s" style="justify-content:center">Secondary</button>
+        <button class="btn" style="justify-content:center;background:transparent;color:var(--signal);border-color:var(--line)">Ghost →</button>
+      </div>
+      <p style="margin-top:12px;font-size:13px">12px radius, mono labels, 4px focus ring in green at 18% alpha.</p>
+    </div>
+    <div class="card">
+      <h4>Cards</h4>
+      <p style="font-size:13px">Carbon fill, 1px Slate border, 16px radius. Hover lifts 2px and warms the border. No drop shadows in dark mode — depth comes from borders and elevation tint.</p>
+    </div>
+    <div class="card">
+      <h4>Iconography</h4>
+      <p style="font-size:13px">1.5px stroke, 24px grid, rounded joins. Geometric and monoline — Lucide-style. Diamonds (◆) and stacked layers recur as brand motifs.</p>
+    </div>
+  </div>
+
+  <div class="grid g2" style="margin-top:18px">
+    <div class="card">
+      <h4>Motion &amp; animations</h4>
+      <ul class="clean">
+        <li><strong>Architecture diagram:</strong> tokens flow model→runtime→app along animated paths.</li>
+        <li><strong>Loading:</strong> a pulsing spark + streaming-token shimmer (mono characters typing in).</li>
+        <li><strong>Micro-interactions:</strong> 150–200ms ease-out; nothing bounces. Calm, mechanical.</li>
+        <li><strong>Signature moment:</strong> the spark "ignites" on first token — a single cyan pulse.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Illustrations &amp; empty states</h4>
+      <ul class="clean">
+        <li><strong>Illustration style:</strong> isometric circuit boards, chip dies, and layer stacks — technical blueprint over decorative.</li>
+        <li><strong>Empty states:</strong> a dim chip tile + one-line mono hint (<code>// no models yet — pull one to begin</code>) and a single primary action.</li>
+        <li><strong>Loading animation:</strong> skeleton blocks in Slate with a green sweep; token counter ticks up live.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 5. TAGLINES -->
+<section id="taglines" class="wrap">
+  <div class="kicker">05 — Taglines · 50+</div>
+  <h2>Launch-ready slogans</h2>
+  <p class="lead">The hero line is <strong>"Run AI. Anywhere."</strong> — everything else supports a channel, audience, or moment.</p>
+
+  <h4>Hero &amp; positioning</h4>
+  <div class="taglines">
+    <span class="tag star">Run AI. Anywhere.</span><span class="tag star">The Android AI Runtime.</span><span class="tag">Your AI. Your Device.</span><span class="tag">Powering Local Intelligence.</span><span class="tag">The Engine Behind On-Device AI.</span><span class="tag">Intelligence, on device.</span><span class="tag">The runtime for local AI.</span><span class="tag">AI that runs where you do.</span><span class="tag">Local models. Native speed.</span><span class="tag">The missing AI system service.</span>
+  </div>
+  <h4>Privacy &amp; offline</h4>
+  <div class="taglines">
+    <span class="tag">No cloud required.</span><span class="tag">Private by default.</span><span class="tag">Your data never leaves.</span><span class="tag">Offline is a feature.</span><span class="tag">AI without the account.</span><span class="tag">Works on a plane.</span><span class="tag">Zero cloud. Zero leaks.</span><span class="tag">The cloud is now optional.</span><span class="tag">Nothing leaves the device.</span><span class="tag">Intelligence you own.</span>
+  </div>
+  <h4>Developer</h4>
+  <div class="taglines">
+    <span class="tag star">Ship intelligence, not infrastructure.</span><span class="tag">One API. Every model.</span><span class="tag">OpenAI-compatible. Fully local.</span><span class="tag">Five minutes to first token.</span><span class="tag">Stop shipping inference engines.</span><span class="tag">import edgelm — done.</span><span class="tag">The SDK for on-device AI.</span><span class="tag">Local endpoint. Familiar API.</span><span class="tag">Build AI apps. Skip the backend.</span><span class="tag">Your localhost, now intelligent.</span>
+  </div>
+  <h4>Performance &amp; hardware</h4>
+  <div class="taglines">
+    <span class="tag">GPU-accelerated. Battery-aware.</span><span class="tag">The chip was always ready.</span><span class="tag">Full-speed, on-device.</span><span class="tag">Every milliamp matters.</span><span class="tag">Native silicon, unlocked.</span><span class="tag">Inference at the edge of speed.</span><span class="tag">Fast, local, free.</span><span class="tag">The neural engine, finally used.</span>
+  </div>
+  <h4>Vision &amp; platform</h4>
+  <div class="taglines">
+    <span class="tag">The AI operating system for mobile.</span><span class="tag">A shared brain for every app.</span><span class="tag">The infrastructure layer for edge AI.</span><span class="tag">Install once. Every app gets AI.</span><span class="tag">Docker for on-device models.</span><span class="tag">The runtime the phone was missing.</span><span class="tag">One runtime. Every device.</span><span class="tag">Bring intelligence home.</span>
+  </div>
+  <h4>Punchy / campaign</h4>
+  <div class="taglines">
+    <span class="tag">Cloud-free AI.</span><span class="tag">Local is faster.</span><span class="tag">On-device or bust.</span><span class="tag">The edge has an engine.</span><span class="tag">Models, meet metal.</span><span class="tag">Think local.</span><span class="tag">Pocket-sized inference.</span><span class="tag">Unplug the cloud.</span><span class="tag">Native AI. No strings.</span><span class="tag">The spark runs local.</span>
+  </div>
+</section>
+
+<!-- 6. WEBSITE -->
+<section id="website" class="wrap">
+  <div class="kicker">06 — Landing Page</div>
+  <h2>The website, section by section</h2>
+  <p class="lead">A single, fast, dark-first marketing page engineered to convert developers in one scroll — proof over promises.</p>
+
+  <div class="wire">
+    <div class="bar"><i></i><i></i><i></i><span style="margin-left:10px;font-family:var(--mono);font-size:12px;color:var(--steel)">edgelm.dev</span></div>
+    <div class="body">
+      <div class="row"><b>1 · Hero</b> — "Run AI. Anywhere." + one-line subhead + <code>$ install edgelm</code> primary CTA + live token-streaming demo animation. Trust pills: on-device, GPU, private.</div>
+      <div class="row"><b>2 · Features</b> — 8-card grid: Local LLMs · Vision · Speech · Embeddings · Agents &amp; Tool Calling · MCP · Offline · OpenAI-compatible API. Each card links to docs.</div>
+      <div class="row"><b>3 · Architecture animation</b> — interactive diagram: App → Local API → EdgeLM Runtime → GPU/NPU scheduler → shared model store. Tokens animate through the pipeline.</div>
+      <div class="row"><b>4 · Performance</b> — live counters: tokens/sec on flagship vs mid-range, cold-start ms, memory footprint, battery draw per 1k tokens. "It's faster than the round-trip to the cloud."</div>
+      <div class="row"><b>5 · Developer API</b> — tabbed code sample (cURL / Kotlin / JS) hitting <code>localhost:1408/v1/chat/completions</code>. Copy-to-clipboard. "Change one line from OpenAI."</div>
+      <div class="row"><b>6 · SDK</b> — Android SDK highlight: dependency snippet, permissions model, model-pull API, streaming callbacks. "Add AI in 5 lines of Kotlin."</div>
+      <div class="row"><b>7 · Security</b> — per-app permissions, sandboxed model access, on-device-only guarantee, signed model registry, no telemetry by default.</div>
+      <div class="row"><b>8 · Benchmarks</b> — sortable table: model × device × tokens/sec × RAM × TTFT. Toggle GPU/CPU. Methodology link.</div>
+      <div class="row"><b>9 · Testimonials</b> — 3 fictional dev/founder quotes (see Developer Messaging) with avatars + app logos.</div>
+      <div class="row"><b>10 · Pricing</b> — Runtime free &amp; open · SDK Pro · Team · Enterprise. Clear "free forever for the runtime" promise.</div>
+      <div class="row"><b>11 · FAQ</b> — Which devices? Which models? Battery impact? Is it really offline? How is it free? iOS? Model licensing?</div>
+      <div class="row"><b>12 · Footer</b> — docs, GitHub, Discord, X, status, changelog, security.txt, brand assets, careers.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 7. DEVELOPER MESSAGING -->
+<section id="dev" class="wrap">
+  <div class="kicker">07 — Developer Messaging</div>
+  <h2>Talk to developers in code</h2>
+
+  <div class="grid g2">
+    <div class="card"><h4>Why EdgeLM?</h4><p>Because you shouldn't ship a 400MB inference engine, rent a GPU, or leak your users' data to add a chat box. One shared runtime does it for every app — private, offline, free.</p></div>
+    <div class="card"><h4>Offline-first</h4><p>Your app works in a tunnel, on a plane, in a dead zone. No network, no latency spikes, no rate limits, no outages that aren't yours.</p></div>
+    <div class="card"><h4>Privacy</h4><p>Prompts and data never touch a server. That's not a policy — it's the architecture. Ship apps that are private by construction, and say so on your store page.</p></div>
+    <div class="card"><h4>Performance</h4><p>GPU/NPU-accelerated, battery-aware scheduling, shared model cache across apps. First token before the cloud finishes its TLS handshake.</p></div>
+  </div>
+
+  <h3>OpenAI compatibility &amp; migration</h3>
+  <p>If you can call OpenAI, you can call EdgeLM. Point your base URL at the local runtime and delete your API key — the request and streaming response shapes are identical.</p>
+  <pre><span class="cm"># Migration: change one line.</span>
+- base_url = <span class="st">"https://api.openai.com/v1"</span>
++ base_url = <span class="st">"http://localhost:1408/v1"</span>   <span class="cm"># EdgeLM local runtime</span>
+
+curl http://localhost:1408/v1/chat/completions \
+  -H <span class="st">"Content-Type: application/json"</span> \
+  -d <span class="st">'{"model":"llama-3.2-3b","messages":[{"role":"user","content":"Summarize this note offline."}],"stream":true}'</span></pre>
+
+  <h3>Android SDK — add AI in 5 lines of Kotlin</h3>
+  <pre><span class="kw">val</span> edge = <span class="fn">EdgeLM</span>.client(context)          <span class="cm">// binds to the shared runtime</span>
+edge.<span class="fn">ensureModel</span>(<span class="st">"llama-3.2-3b"</span>)          <span class="cm">// pulled once, shared by all apps</span>
+
+<span class="kw">val</span> reply = edge.<span class="fn">chat</span> {
+    system(<span class="st">"You are a helpful, offline assistant."</span>)
+    user(prompt)
+}.<span class="fn">collectAsText</span>()                     <span class="cm">// streaming tokens, on-device</span></pre>
+
+  <div class="grid g2">
+    <div class="card"><h4>SDK benefits</h4>
+      <ul class="clean">
+        <li>Streaming, tool-calling, and MCP built in.</li>
+        <li>Shared model store — download once, every app reuses it.</li>
+        <li>Battery + thermal-aware scheduling handled for you.</li>
+        <li>Typed Kotlin API, plus raw OpenAI-compatible REST for any language.</li>
+      </ul>
+    </div>
+    <div class="card"><h4>Fictional testimonials</h4>
+      <p style="font-size:13.5px">“We deleted our inference backend and our cloud bill in the same afternoon.” — <strong>Priya N., founder, NoteFox</strong></p>
+      <p style="font-size:13.5px">“Our journaling app is now fully offline and private. Store rating jumped.” — <strong>Marcus L., Lead Android, Reflekt</strong></p>
+      <p style="font-size:13.5px">“One API for LLM, vision, and speech. It felt like a system service, not an SDK.” — <strong>Dana W., Staff Eng, FieldOps</strong></p>
+    </div>
+  </div>
+</section>
+
+<!-- 8. MARKETING -->
+<section id="market" class="wrap">
+  <div class="kicker">08 — Launch Strategy</div>
+  <h2>How EdgeLM becomes the standard runtime</h2>
+  <p class="lead">Win developers first, become a dependency, then let the ecosystem pull everyone else in. Standards are earned by being the path of least resistance.</p>
+
+  <div class="grid g3">
+    <div class="card"><h4>Product Hunt</h4><p>Launch day: crisp 60s demo GIF, "OpenAI-compatible, 100% local," founder in comments all day. Aim #1 Product of the Day.</p></div>
+    <div class="card"><h4>Hacker News</h4><p>"Show HN: EdgeLM – a local, OpenAI-compatible AI runtime for Android." Lead with the technical honesty, benchmarks, and the open-source runtime.</p></div>
+    <div class="card"><h4>Reddit</h4><p>r/LocalLLaMA, r/androiddev, r/MachineLearning. Real benchmarks, real repos, answer every hard question. No marketing voice.</p></div>
+    <div class="card"><h4>GitHub</h4><p>Open-source runtime + SDK as the center of gravity. Great README, examples, "good first issue" labels. Stars are the scoreboard.</p></div>
+    <div class="card"><h4>X / Twitter</h4><p>Build-in-public thread series: benchmark drops, model support, "cloud vs local" latency videos. Tag the local-AI community.</p></div>
+    <div class="card"><h4>YouTube</h4><p>"Add offline AI to your Android app in 5 minutes" tutorials + deep-dive architecture videos. Partner with Android/AI creators.</p></div>
+    <div class="card"><h4>LinkedIn</h4><p>Enterprise/privacy angle: on-device AI for regulated industries. Founder essays on the shift back from cloud.</p></div>
+    <div class="card"><h4>Android communities</h4><p>Kotlin/Android Slacks, Droidcon talks, GDG meetups. Position EdgeLM as the missing Jetpack-style system service.</p></div>
+    <div class="card"><h4>AI communities</h4><p>llama.cpp / GGUF / MLC circles, Hugging Face model cards linking "Run on Android with EdgeLM." Ride existing model momentum.</p></div>
+  </div>
+  <div class="callout"><p class="lead"><strong>The standard-setter playbook:</strong> (1) be the easiest way to add AI to an Android app, (2) be OpenAI-compatible so migration is one line, (3) open-source the runtime so it's trustable and forkable, (4) build EdgeLM Hub so models "just work," (5) let shipped apps become the distribution — every app that depends on EdgeLM makes it more standard.</p></div>
+</section>
+
+<!-- 9. OPEN SOURCE -->
+<section id="oss" class="wrap">
+  <div class="kicker">09 — Open Source Strategy</div>
+  <h2>Open core is the answer</h2>
+  <p class="lead">Trust in infrastructure requires openness; sustainability requires revenue. Open core resolves the tension.</p>
+  <table>
+    <tr><th>Model</th><th>Pros</th><th>Cons</th><th>Fit</th></tr>
+    <tr><td><strong>Fully open source</strong></td><td>Max trust &amp; adoption; forkable; community moat</td><td>Hard to monetize; cloud/enterprise can free-ride</td><td>Good for the runtime only</td></tr>
+    <tr><td><strong>Open core</strong> ✅</td><td>Open runtime builds trust; paid Pro/Enterprise features fund it</td><td>Must draw the core/commercial line carefully</td><td><strong>Recommended</strong></td></tr>
+    <tr><td>Commercial / closed</td><td>Full control of monetization</td><td>Developers won't adopt closed infra; no trust</td><td>Wrong for a runtime</td></tr>
+    <tr><td>Enterprise-only</td><td>High ACV</td><td>No bottom-up adoption; no standard</td><td>Later stage layer</td></tr>
+    <tr><td>Dual license</td><td>Free for OSS, paid for commercial</td><td>Friction for indie devs; license confusion</td><td>Possible for SDK</td></tr>
+  </table>
+  <div class="callout"><p class="lead"><strong>Recommendation:</strong> Runtime + core SDK under a permissive license (Apache-2.0) — free forever, the trust anchor and adoption engine. Monetize the layers <em>around</em> it: EdgeLM Hub Pro, Studio, Cloud fallback, enterprise management, and support. Open where trust matters, paid where value concentrates.</p></div>
+</section>
+
+<!-- 10. COMPETITIVE -->
+<section id="compete" class="wrap">
+  <div class="kicker">10 — Competitive Positioning</div>
+  <h2>What makes EdgeLM different</h2>
+  <p class="lead">Others give you an engine or a library. EdgeLM gives you a <strong>shared platform</strong> — a system service with an API, permissions, and a model store that every app draws from.</p>
+  <table>
+    <tr><th>Player</th><th>What it is</th><th>Gap EdgeLM fills</th></tr>
+    <tr><td><strong>Ollama</strong></td><td>Great local-model runner for desktop/servers</td><td>Not an Android system service; no shared multi-app runtime, permissions, or battery scheduling on mobile</td></tr>
+    <tr><td><strong>llama.cpp</strong></td><td>The inference engine (the metal)</td><td>A library each app must embed &amp; maintain — EdgeLM makes it a shared OS service with an API</td></tr>
+    <tr><td><strong>MLC LLM</strong></td><td>Compiler-based on-device inference</td><td>Powerful but low-level per app; EdgeLM adds the platform, API, hub, and cross-app sharing</td></tr>
+    <tr><td><strong>Google AI Edge</strong></td><td>Google's on-device stack (MediaPipe/LiteRT)</td><td>Google-model-centric &amp; fragmented; EdgeLM is model-agnostic, OpenAI-compatible, one runtime for all apps</td></tr>
+    <tr><td><strong>Apple MLX</strong></td><td>Apple-silicon ML framework</td><td>iOS/Mac only &amp; framework-level; EdgeLM targets Android as a shared runtime + API, not just a framework</td></tr>
+  </table>
+  <div class="grid g3">
+    <div class="card"><div class="ic">◈</div><h4>Shared, not embedded</h4><p>Install once; every app uses it. Models downloaded once, not per app.</p></div>
+    <div class="card"><div class="ic">◇</div><h4>OpenAI-compatible</h4><p>Migration is one line. No new mental model, no lock-in.</p></div>
+    <div class="card"><div class="ic">◱</div><h4>A system service</h4><p>Permissions, GPU scheduling, battery-awareness — OS concerns handled for you.</p></div>
+  </div>
+</section>
+
+<!-- 11. ECOSYSTEM -->
+<section id="ecosystem" class="wrap">
+  <div class="kicker">11 — Product Ecosystem</div>
+  <h2>One runtime, a whole platform around it</h2>
+  <p class="lead">Every product orbits the runtime — the free, open core that makes all the rest valuable.</p>
+  <div class="grid g3">
+    <div class="card"><div class="ic">◱</div><h4>EdgeLM Runtime</h4><p>The open-source, on-device engine + local API. The center of gravity. Free forever.</p></div>
+    <div class="card"><div class="ic">△</div><h4>EdgeLM SDK</h4><p>Android/Kotlin + REST clients. Streaming, tools, MCP, permissions. The developer front door.</p></div>
+    <div class="card"><div class="ic">◈</div><h4>EdgeLM Hub</h4><p>Signed, optimized, device-matched model registry. "It just works" model pulls.</p></div>
+    <div class="card"><div class="ic">◐</div><h4>EdgeLM Studio</h4><p>Desktop app to test prompts, benchmark, quantize, and package models for devices.</p></div>
+    <div class="card"><div class="ic">☁</div><h4>EdgeLM Cloud</h4><p>Optional overflow/fallback + fleet model distribution for teams. Local-first, cloud-when-asked.</p></div>
+    <div class="card"><div class="ic">▤</div><h4>EdgeLM Benchmark</h4><p>Open leaderboard of model × device performance. The trusted numbers everyone cites.</p></div>
+    <div class="card"><div class="ic">›_</div><h4>EdgeLM CLI</h4><p>Pull, run, profile, and package models from the terminal. Scriptable CI integration.</p></div>
+    <div class="card"><div class="ic">▣</div><h4>EdgeLM Desktop</h4><p>Bring the same runtime + API to Windows/Mac/Linux — write once, run on any edge.</p></div>
+    <div class="card"><div class="ic">🏢</div><h4>EdgeLM Enterprise</h4><p>Fleet management, policy, private model registry, SSO, audit, support SLAs.</p></div>
+    <div class="card"><div class="ic">◇</div><h4>EdgeLM Marketplace</h4><p>Third-party models, plugins, and agents — a revenue-shared ecosystem on top of Hub.</p></div>
+  </div>
+  <div class="callout"><p class="lead"><strong>How it fits together:</strong> Developers build with the <em>SDK</em> against the <em>Runtime</em>, pull models from the <em>Hub</em>, tune them in <em>Studio</em>, automate via <em>CLI</em>, trust the <em>Benchmark</em> numbers, extend the same runtime to <em>Desktop</em>, scale with <em>Cloud</em> and <em>Enterprise</em>, and monetize through the <em>Marketplace</em>. The open runtime is the gravity well; everything else is value on top.</p></div>
+</section>
+
+<!-- 12. MONETIZATION -->
+<section id="money" class="wrap">
+  <div class="kicker">12 — Monetization</div>
+  <h2>Sustainable, non-intrusive revenue</h2>
+  <p class="lead">Free runtime drives adoption; money comes from teams, scale, and the ecosystem — never from ads in the inference path.</p>
+  <div class="grid g3">
+    <div class="card"><h4>Enterprise SDK &amp; support</h4><p>Fleet management, private registry, SSO, audit, SLAs. The core ACV driver.</p></div>
+    <div class="card"><h4>Model marketplace</h4><p>Premium/optimized/licensed models with revenue share on every pull.</p></div>
+    <div class="card"><h4>Cloud fallback</h4><p>Metered overflow when a device can't handle a model — local-first, cloud-billed.</p></div>
+    <div class="card"><h4>Commercial licenses</h4><p>Paid terms for closed-source/commercial embedding of premium components.</p></div>
+    <div class="card"><h4>Developer subscriptions</h4><p>Pro tier: private models, higher Hub limits, Studio Pro, priority builds.</p></div>
+    <div class="card"><h4>Plugin marketplace</h4><p>Agents, tools, and MCP integrations — revenue-shared with builders.</p></div>
+    <div class="card"><h4>Analytics (opt-in)</h4><p>Privacy-preserving, on-device performance analytics for teams. Never user data.</p></div>
+    <div class="card"><h4>Enterprise deployment</h4><p>On-prem model distribution, device fleet policy, compliance tooling.</p></div>
+    <div class="card"><h4>Certification &amp; training</h4><p>"Built on EdgeLM" certification + partner enablement for agencies.</p></div>
+  </div>
+  <p style="margin-top:12px;font-size:13.5px"><strong>Principle:</strong> monetize the layers around the runtime, keep the inference path free and ad-free. Adoption is the moat; the moat funds itself through teams and the marketplace.</p>
+</section>
+
+<!-- 13. ROADMAP -->
+<section id="roadmap" class="wrap">
+  <div class="kicker">13 — Launch Roadmap</div>
+  <h2>From MVP to AI operating system</h2>
+  <div class="roadmap">
+    <div class="rm"><div class="ph">PHASE 0 · MVP</div><h4>Prove local inference on Android</h4><p>Single-app LLM inference, GGUF support, GPU acceleration, basic local API. Ship a demo app + benchmarks. Goal: "it actually runs, and it's fast."</p></div>
+    <div class="rm"><div class="ph">PHASE 1 · BETA</div><h4>Shared runtime + OpenAI-compatible API</h4><p>Multi-app shared service, model store, streaming, permissions, Android SDK. Open-source the runtime. Goal: 5-minute integration, first external apps live.</p></div>
+    <div class="rm"><div class="ph">PHASE 2 · v1.0</div><h4>Production-ready platform</h4><p>Vision + speech + embeddings, tool calling, MCP, battery/thermal scheduling, EdgeLM Hub, stability + docs. Goal: production apps depend on it.</p></div>
+    <div class="rm"><div class="ph">PHASE 3 · DEVELOPER PLATFORM</div><h4>Studio, CLI, Benchmark, Marketplace</h4><p>Full toolchain, model marketplace, plugins/agents, desktop runtime parity. Goal: EdgeLM is the default way to build on-device AI.</p></div>
+    <div class="rm"><div class="ph">PHASE 4 · ENTERPRISE</div><h4>Fleet, policy, compliance, support</h4><p>Private registries, SSO, audit, SLAs, Cloud fallback, on-prem distribution. Goal: regulated + large orgs standardize on EdgeLM.</p></div>
+    <div class="rm"><div class="ph">PHASE 5 · AI OPERATING SYSTEM</div><h4>The intelligence layer for every edge device</h4><p>Cross-platform (Android, desktop, embedded/IoT, automotive, wearables), agent orchestration, on-device fine-tuning. Goal: EdgeLM is the standard runtime for local AI, everywhere.</p></div>
+  </div>
+</section>
+
+<footer class="wrap">
+  <div class="brand" style="font-size:22px">Edge<span style="color:var(--signal)">LM</span><span class="dot"></span></div>
+  <p>The Android AI Runtime — run AI, anywhere.</p>
+  <div class="foot-links"><a href="#">Docs</a><a href="#">GitHub</a><a href="#">Discord</a><a href="#">X</a><a href="#">Benchmarks</a><a href="#">Brand assets</a><a href="#">Security</a></div>
+  <p class="disc">Brand book &amp; product strategy — concept document. Company, testimonials, benchmarks, and product timelines shown here are illustrative for branding purposes. Not affiliated with OpenAI, Google, Apple, Ollama, or any named project; "OpenAI-compatible" refers to API shape compatibility only.</p>
+</footer>
+
+</body>
+</html>

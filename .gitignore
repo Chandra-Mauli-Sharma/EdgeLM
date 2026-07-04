@@ -1,0 +1,10 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+.cxx/
+.DS_Store
+# llama.cpp is vendored as a submodule under runtime-service/src/main/cpp/llama.cpp
+# model weights are NOT committed — push them with adb (see docs/PHASE-0-BUILD-PLAN.md)
+*.gguf

@@ -1,0 +1,26 @@
+<svg width="880" height="200" viewBox="0 0 880 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EdgeLM logo">
+  <defs>
+    <linearGradient id="tileL" x1="20" y1="20" x2="180" y2="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#14181B"/>
+      <stop offset="1" stop-color="#0B0E10"/>
+    </linearGradient>
+    <linearGradient id="sigL" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8FF23C"/>
+      <stop offset="1" stop-color="#63C912"/>
+    </linearGradient>
+    <radialGradient id="sparkL" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#39D8F2"/><stop offset="1" stop-color="#12A9C6"/>
+    </radialGradient>
+  </defs>
+  <g transform="translate(20,20) scale(0.3125)">
+    <path d="M104,0 L362,0 L512,150 L512,408 A104,104 0 0 1 408,512 L104,512 A104,104 0 0 1 0,408 L0,104 A104,104 0 0 1 104,0 Z" fill="url(#tileL)"/>
+    <g fill="url(#sigL)">
+      <rect x="150" y="150" width="46" height="212" rx="23"/>
+      <rect x="150" y="150" width="190" height="46" rx="23"/>
+      <rect x="150" y="233" width="140" height="46" rx="23"/>
+      <rect x="150" y="316" width="190" height="46" rx="23"/>
+    </g>
+    <circle cx="356" cy="256" r="24" fill="url(#sparkL)"/>
+  </g>
+  <text x="212" y="128" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="96" font-weight="700" letter-spacing="-3" fill="#0B0E10">Edge<tspan fill="#4FB80A">LM</tspan></text>
+</svg>

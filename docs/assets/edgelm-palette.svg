@@ -1,0 +1,37 @@
+<svg width="920" height="360" viewBox="0 0 920 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EdgeLM color palette">
+  <rect width="920" height="360" fill="#0B0E10"/>
+  <text x="40" y="52" font-family="'Segoe UI',Arial,sans-serif" font-size="26" font-weight="700" fill="#F5F7F6">EdgeLM — Core Palette</text>
+  <g font-family="'Segoe UI',Arial,sans-serif">
+    <!-- row 1 -->
+    <g transform="translate(40,84)">
+      <rect width="130" height="130" rx="18" fill="#0B0E10" stroke="#2A3238"/>
+      <text x="10" y="150" font-size="15" font-weight="700" fill="#F5F7F6">Obsidian</text>
+      <text x="10" y="170" font-size="13" fill="#7C8A93">#0B0E10</text>
+    </g>
+    <g transform="translate(190,84)">
+      <rect width="130" height="130" rx="18" fill="#14181B"/>
+      <text x="10" y="150" font-size="15" font-weight="700" fill="#F5F7F6">Carbon</text>
+      <text x="10" y="170" font-size="13" fill="#7C8A93">#14181B</text>
+    </g>
+    <g transform="translate(340,84)">
+      <rect width="130" height="130" rx="18" fill="#1E262B"/>
+      <text x="10" y="150" font-size="15" font-weight="700" fill="#F5F7F6">Slate</text>
+      <text x="10" y="170" font-size="13" fill="#7C8A93">#1E262B</text>
+    </g>
+    <g transform="translate(490,84)">
+      <rect width="130" height="130" rx="18" fill="#9BFF3C"/>
+      <text x="10" y="150" font-size="15" font-weight="700" fill="#F5F7F6">Signal Green</text>
+      <text x="10" y="170" font-size="13" fill="#7C8A93">#9BFF3C</text>
+    </g>
+    <g transform="translate(640,84)">
+      <rect width="130" height="130" rx="18" fill="#2DE3FF"/>
+      <text x="10" y="150" font-size="15" font-weight="700" fill="#F5F7F6">Volt Cyan</text>
+      <text x="10" y="170" font-size="13" fill="#7C8A93">#2DE3FF</text>
+    </g>
+    <g transform="translate(790,84)">
+      <rect width="90" height="130" rx="18" fill="#F5F7F6"/>
+      <text x="10" y="150" font-size="15" font-weight="700" fill="#F5F7F6">Mist</text>
+      <text x="10" y="170" font-size="13" fill="#7C8A93">#F5F7F6</text>
+    </g>
+  </g>
+</svg>

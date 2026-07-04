@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      The SDK needs to see and bind the runtime-service package.
+      Android 11+ package visibility: declare the runtime component explicitly.
+    -->
+    <queries>
+        <package android:name="ai.edgelm.runtime" />
+    </queries>
+</manifest>
+
