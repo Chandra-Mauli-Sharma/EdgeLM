@@ -14,6 +14,16 @@ because the model's entire state between tokens *is* the KV cache.
 
 Copy-ready file: `docs/phase1-scheduler/AIScheduler.kt`.
 
+> **Shipped in the runtime:** a **non-preemptive priority-admission** scheduler
+> (`runtime-service/.../AIScheduler.kt`): with one shared llama_context, exactly one
+> generation runs at a time, and the scheduler admits the highest effective-priority
+> waiter next (with aging so nothing starves). `EdgeLM.chat(..., priority = ...)`
+> threads a class through the API (FOREGROUND/INTERACTIVE/BATCH/BACKGROUND).
+> The **token-boundary preemption** design below (pause/resume mid-generation via
+> the permit model) is the next step and needs multiple KV **sequences** decoding
+> concurrently — continuous batching — so a paused job's KV survives while another
+> runs. That's the real upgrade; non-preemptive admission is the honest spike step.
+
 ---
 
 ## What you get

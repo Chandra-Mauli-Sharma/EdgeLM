@@ -20,8 +20,10 @@ struct Sink {
 Model* load_model(const char* path);
 
 // Tokenize `prompt`, run the decode loop, stream detokenized pieces into `sink`.
+// `sessionId` "" = stateless (KV wiped each call); a stable id continues that
+// conversation, reusing its warm KV so prior turns aren't re-prefilled.
 // Returns the number of tokens generated. Blocking; call off the main thread.
-int    generate(Model* m, const std::string& prompt, const Sink& sink);
+int    generate(Model* m, const std::string& sessionId, const std::string& prompt, const Sink& sink);
 
 void   request_cancel(Model* m);
 void   unload_model(Model* m);

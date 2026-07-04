@@ -31,7 +31,13 @@ class MainActivity : ComponentActivity() {
             var firstNs = 0L
             lifecycleScope.launch {
                 try {
-                    EdgeLM.chat("default", "Second app, same shared model.")
+                    // BACKGROUND priority + a long prompt: a foreground request from
+                    // Demo A is admitted ahead of this when both are queued.
+                    EdgeLM.chat(
+                        "default",
+                        "Write a long, detailed explanation of how threads work, with examples.",
+                        priority = EdgeLM.BACKGROUND,
+                    )
                         .collect { chunk ->
                             if (firstNs == 0L) firstNs = System.nanoTime()
                             out.append(chunk); tokens++

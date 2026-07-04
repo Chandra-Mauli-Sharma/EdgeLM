@@ -38,11 +38,13 @@ class EdgeLMService : Service() {
     private val requestIds = AtomicLong(1)
     private val cancelled = ConcurrentHashMap<Long, AtomicBoolean>()
 
-    // Serializes the single engine across the Binder and HTTP front doors.
-    private val inferenceLock = Any()
+    // Priority-ordered admission to the single engine (Part 8). Also provides the
+    // mutual exclusion the shared context needs — only one generation runs at a time.
+    private val scheduler = AIScheduler()
 
-    // Single worker => Binder requests run one at a time. Simple for the spike.
-    private val worker = Executors.newSingleThreadExecutor()
+    // Pool so multiple Binder requests can be *waiting* in the scheduler at once;
+    // the scheduler (not this pool) serializes actual execution in priority order.
+    private val worker = Executors.newCachedThreadPool()
 
     @Volatile private var http: EdgeLMHttpServer? = null
 
@@ -55,17 +57,21 @@ class EdgeLMService : Service() {
 
     /** The one place inference actually happens; both front doors call this. */
     private fun runInference(
+        sessionId: String,
         prompt: String,
+        priority: AIScheduler.Priority,
         onToken: (String) -> Unit,
         isCancelled: () -> Boolean,
-    ): EdgeLMHttpServer.GenStats = synchronized(inferenceLock) {
-        if (modelHandle == 0L) return EdgeLMHttpServer.GenStats(0, 0)
+    ): EdgeLMHttpServer.GenStats = scheduler.withEngine(priority) {
+        // Single shared context => serialize; the scheduler admits the highest
+        // priority waiter next (with aging). One generation runs at a time.
+        if (modelHandle == 0L) return@withEngine EdgeLMHttpServer.GenStats(0, 0)
         val started = System.currentTimeMillis()
         val sink = object : NativeBridge.TokenSink {
             override fun onChunk(text: String) = onToken(text)
             override fun isCancelled(): Boolean = isCancelled()
         }
-        val n = NativeBridge.generate(modelHandle, prompt, sink)
+        val n = NativeBridge.generate(modelHandle, sessionId, prompt, sink)
         EdgeLMHttpServer.GenStats(n, System.currentTimeMillis() - started)
     }
 
@@ -75,7 +81,11 @@ class EdgeLMService : Service() {
     private fun startHttpShim() {
         http = EdgeLMHttpServer(
             port = HTTP_PORT,
-            infer = { _, prompt, onToken, isCancelled -> runInference(prompt, onToken, isCancelled) },
+            // HTTP path is stateless (OpenAI clients resend full history) -> no session,
+            // and defaults to BATCH priority (no UI foreground signal).
+            infer = { _, prompt, onToken, isCancelled ->
+                runInference("", prompt, AIScheduler.Priority.BATCH, onToken, isCancelled)
+            },
             warmModels = { warmModels() },
         ).also { server ->
             runCatching { server.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false) }
@@ -88,7 +98,8 @@ class EdgeLMService : Service() {
 
     private val binder = object : IEdgeLMService.Stub() {
 
-        override fun submit(model: String, prompt: String, callback: ITokenCallback): Long {
+        override fun submit(model: String, sessionId: String, prompt: String,
+                            priority: Int, callback: ITokenCallback): Long {
             val id = requestIds.getAndIncrement()
             val cancelFlag = AtomicBoolean(false)
             cancelled[id] = cancelFlag
@@ -100,7 +111,9 @@ class EdgeLMService : Service() {
                 }
                 try {
                     val stats = runInference(
+                        sessionId,
                         prompt,
+                        AIScheduler.Priority.of(priority),
                         onToken = { runCatching { callback.onTokens(it) } },
                         isCancelled = { cancelFlag.get() },
                     )

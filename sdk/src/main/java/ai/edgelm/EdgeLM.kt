@@ -17,6 +17,12 @@ object EdgeLM {
 
     @Volatile private var connection: RuntimeConnection? = null
 
+    /** Scheduling priority classes for [chat] — higher is admitted to the engine first. */
+    const val FOREGROUND = 3
+    const val INTERACTIVE = 2
+    const val BATCH = 1
+    const val BACKGROUND = 0
+
     /** Bind to the shared runtime service. Idempotent. */
     fun initialize(context: Context) {
         if (connection == null) {
@@ -32,10 +38,18 @@ object EdgeLM {
      * Stream a completion from the shared, on-device runtime.
      * Cold Flow: work starts on collect, cancels when the collector's scope cancels
      * (which propagates a Binder cancel() down to the decode loop).
+     *
+     * Pass a stable [sessionId] to continue a conversation: prior turns stay in the
+     * warm KV cache and aren't re-prefilled. Default "" = stateless one-shot.
      */
-    fun chat(model: String, prompt: String): Flow<String> {
+    fun chat(
+        model: String,
+        prompt: String,
+        sessionId: String = "",
+        priority: Int = INTERACTIVE,
+    ): Flow<String> {
         val conn = connection ?: error("Call EdgeLM.initialize(context) first")
-        return conn.stream(model, prompt)
+        return conn.stream(model, sessionId, prompt, priority)
     }
 
     /** Models currently warm in the shared runtime (diagnostics). */

@@ -49,25 +49,3 @@ Java_ai_edgelm_service_NativeBridge_generate(JNIEnv* env, jobject,
     sink.emit_chunk = [gsink, onChunk](const std::string& text) {
         JNIEnv* e = nullptr;
         if (g_vm->AttachCurrentThread(&e, nullptr) != JNI_OK || e == nullptr) return;
-        jstring js = e->NewStringUTF(text.c_str());
-        e->CallVoidMethod(gsink, onChunk, js);
-        e->DeleteLocalRef(js);
-    };
-    sink.is_cancelled = []() -> bool { return false; };   // cancel handled via request_cancel
-
-    int produced = edgelm::generate(m, sessionId, prompt, sink);  // blocks until this lane finishes
-    env->DeleteGlobalRef(gsink);
-    return produced;
-}
-
-JNIEXPORT void JNICALL
-Java_ai_edgelm_service_NativeBridge_cancel(JNIEnv*, jobject, jlong handle) {
-    edgelm::request_cancel(reinterpret_cast<edgelm::Model*>(handle));
-}
-
-JNIEXPORT void JNICALL
-Java_ai_edgelm_service_NativeBridge_unloadModel(JNIEnv*, jobject, jlong handle) {
-    edgelm::unload_model(reinterpret_cast<edgelm::Model*>(handle));
-}
-
-} // extern "C"

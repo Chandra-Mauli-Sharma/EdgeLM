@@ -57,14 +57,14 @@ internal class RuntimeConnection(private val context: Context) {
         }
 
     /** Turn one AIDL streaming request into a cold Flow<String>. */
-    fun stream(model: String, prompt: String): Flow<String> = callbackFlow {
+    fun stream(model: String, sessionId: String, prompt: String, priority: Int): Flow<String> = callbackFlow {
         val svc = awaitService()
         val cb = object : ITokenCallback.Stub() {
             override fun onTokens(chunk: String) { trySend(chunk) }
             override fun onDone(tokenCount: Int, elapsedMs: Long) { close() }
             override fun onError(message: String) { close(RuntimeException(message)) }
         }
-        val requestId = svc.submit(model, prompt, cb)
+        val requestId = svc.submit(model, sessionId, prompt, priority, cb)
 
         // When the collector cancels, propagate all the way to the decode loop.
         awaitClose { runCatching { svc.cancel(requestId) } }

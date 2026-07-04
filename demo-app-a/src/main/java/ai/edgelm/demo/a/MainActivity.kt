@@ -28,22 +28,32 @@ class MainActivity : ComponentActivity() {
         val status = TextView(this).apply { textSize = 13f; setPadding(24, 8, 24, 8) }
         val button = Button(this).apply { text = "Generate (Demo A)" }
 
+        // Multi-turn demo: same sessionId across taps => KV is reused, so the model
+        // remembers earlier turns WITHOUT us resending them (see PHASE1-KV-POOLING).
+        val session = "demo-a-chat"
+        var turn = 0
         button.setOnClickListener {
-            out.text = ""; status.text = "streaming…"
+            turn++
+            // Turn 1 states a fact; turn 2 asks the model to recall it. If session
+            // KV reuse works, turn 2 answers correctly though we never resend turn 1.
+            val prompt = if (turn == 1)
+                "Remember: my favorite color is green. Reply with just 'ok'."
+            else
+                "What is my favorite color? Answer in one short sentence."
+
+            out.text = ""; status.text = "streaming… (turn $turn)"
             var tokens = 0
-            var firstNs = 0L                       // set when the first token arrives
+            var firstNs = 0L
             lifecycleScope.launch {
                 try {
-                    EdgeLM.chat("default", "Say hello from a shared local runtime.")
+                    EdgeLM.chat("default", prompt, session, EdgeLM.FOREGROUND)
                         .collect { chunk ->
-                            if (firstNs == 0L) firstNs = System.nanoTime()  // prefill done
+                            if (firstNs == 0L) firstNs = System.nanoTime()
                             out.append(chunk); tokens++
                         }
-                    // decode-only rate (excludes cold-start prefill) — matches the
-                    // native `perf:` log; the runtime's honest tokens/sec.
                     val decodeS = if (firstNs > 0L) (System.nanoTime() - firstNs) / 1e9 else 0.0
                     val tps = if (tokens > 1 && decodeS > 0) (tokens - 1) / decodeS else 0.0
-                    status.text = "done · %d tok · %.1f tok/s (decode)".format(tokens, tps)
+                    status.text = "turn %d · %d tok · %.1f tok/s".format(turn, tokens, tps)
                 } catch (t: Throwable) {
                     status.text = "error: ${t.message}"
                 }

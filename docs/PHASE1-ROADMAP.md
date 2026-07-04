@@ -9,6 +9,30 @@ it's done. Each step maps to a part of `docs/edgelm-architecture.html`.
 
 ---
 
+## Status — what's shipped (measured on a MediaTek CPU device)
+
+| Piece | Status | Result |
+|---|---|---|
+| **Real llama.cpp inference** | ✅ Shipped | Coherent Qwen2.5-0.5B, **~23 tok/s decode** (`-O3` + ARM dotprod) |
+| **OpenAI HTTP shim** | ✅ Shipped | `127.0.0.1:1408/v1` live; `/health`, `/v1/models`, `/v1/chat/completions` (SSE) |
+| **Warm context reuse** | ✅ Shipped | Context created once at load; **prefill 2.26s → ~0.6s**, and it lifted decode 7.8 → 23 tok/s (hot buffers) |
+| **Honest metrics** | ✅ Shipped | Demo shows decode-only tok/s; native `perf:` log for prefill vs decode |
+| Vulkan GPU backend | ⏳ Gated | Needs LunarG Vulkan SDK (`glslc`) on the host; then 2-line enable |
+| Full session KV reuse | ◻ Next | Multi-turn warm KV + prompt-prefix cache (Level 2) |
+| Real scheduler | ◻ Next | Priority + token-boundary preemption (`PHASE1-SCHEDULER.md`) |
+| QNN / NPU | ◻ Later | Phase-split placement |
+
+**Hard-won build lessons captured (so they don't bite twice):**
+- llama.cpp must build **static** (`BUILD_SHARED_LIBS OFF`) or the service crashes
+  on load (transitive `.so` can't be found by `System.loadLibrary`).
+- The `debug` APK compiles native at `-O0`; force `-O3` via `add_compile_options`
+  (the `CMAKE_*_FLAGS_DEBUG` override is ignored by the ggml sub-build).
+- `GGML_NATIVE OFF` (needed for cross-compile) drops ARM dotprod — add
+  `-march=armv8.2-a+dotprod+fp16` or Q4 matmul runs ~5-10x slow.
+- Create the `llama_context` **once** and reuse it; per-call creation cost ~2s.
+
+---
+
 ## Dependency graph
 
 ```

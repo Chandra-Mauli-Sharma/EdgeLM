@@ -17,9 +17,10 @@ object NativeBridge {
 
     /**
      * Run generation for [handle]+[prompt], pushing chunks into [sink].
+     * [sessionId] "" = stateless; a stable id continues that conversation's KV.
      * Returns the number of tokens produced. Blocking; call off the main thread.
      */
-    external fun generate(handle: Long, prompt: String, sink: TokenSink): Int
+    external fun generate(handle: Long, sessionId: String, prompt: String, sink: TokenSink): Int
 
     /** Cooperative cancel of the in-flight generation on [handle]. */
     external fun cancel(handle: Long)
