@@ -1,70 +1,65 @@
 # EdgeLM — The Android AI Runtime
 
 A shared, on-device AI runtime for Android: install once, and any app can run local
-models through a secure, OpenAI-compatible API — `EdgeLM.chat(...)` — with no cloud by default.
+language models through a small, OpenAI-style API — `EdgeLM.chat(...)` — privately,
+offline, with **one copy of the model weights in memory** shared across every app.
 
-> **This repo is the Phase 0 spike.** Its only job is to prove the load-bearing thesis:
-> a shared, out-of-process runtime can serve multiple apps while keeping **one copy of the
-> model weights in RAM**. See [`docs/PHASE-0-BUILD-PLAN.md`](docs/PHASE-0-BUILD-PLAN.md).
-> Design rationale for the full system is in [`docs/edgelm-architecture.html`](docs/) /
-> [`docs/EdgeLM-Architecture.pdf`](docs/EdgeLM-Architecture.pdf).
+Think of it as "Play Services for on-device AI": apps don't ship or manage model
+weights themselves — they call the shared runtime, which loads a model once and
+serves everyone.
+
+**Status:** working end-to-end and packaged as a real, installable app (**EdgeLM
+Runtime**, `ai.edgelm.runtime`), release-configured for Google Play. Current version
+`0.1.0`.
+
+## What's built
+
+- **Real on-device inference** via vendored **llama.cpp** (JNI), ~23 tok/s decode on a
+  mid/flagship device, with warm-context reuse, per-session KV reuse (multi-turn), and
+  a prompt-prefix cache.
+- **Shared runtime service** in its own `:core` process — model mmap'd once, shared
+  across apps; a second app adds negligible memory.
+- **Two front doors:** a Binder/AIDL API for the native SDK, and an OpenAI-compatible
+  **HTTP shim** on `127.0.0.1:1408` (debug builds only; off in release).
+- **Priority scheduler** — non-preemptive admission with aging (foreground →
+  background).
+- **Security gate** — the service is exported but gated by
+  `ai.edgelm.permission.USE_RUNTIME`; the SDK declares it so apps inherit it via
+  manifest merge.
+- **The app:** first-run onboarding, a **Simple/Advanced** model picker (plain-language
+  by default, full detail on demand), an in-app **model catalog** with on-device
+  downloads (Qwen2.5 0.5B/1.5B, Llama 3.2 1B/3B, Phi-3.5 mini), instant model
+  switching, a **background download service** that survives leaving the app, an
+  ongoing runtime **notification** with Free-memory / Stop actions and idle
+  auto-unload, a built-in **Playground** to test the runtime, and a branded splash.
+- **Release ready:** R8 + resource shrink with keep-rules for JNI/AIDL, signing from
+  `keystore.properties`, and a full Play listing kit in [`docs/play/`](docs/play/).
 
 ## Module map
 
 ```
 EdgeLM/
 ├── contract/         AIDL Binder contract (IEdgeLMService, ITokenCallback)
-├── runtime-service/  the shared runtime — bound Service in its own :core process
-│   └── src/main/cpp/ JNI + native runner (mmaps the model; llama.cpp goes here in Phase 1)
-├── sdk/              thin client — EdgeLM.chat() hides Binder/mmap/llama.cpp from apps
-├── demo-app-a/       first consumer app
-├── demo-app-b/       second consumer app (distinct UID → proves shared memory)
-├── tools/            measure_memory.sh, push_model_and_install.sh
-└── docs/             architecture doc, brand book, Phase 0 plan
+├── runtime-service/  the EdgeLM Runtime app + shared runtime (:core process)
+│   ├── src/main/cpp/         JNI + llama_runner (llama.cpp vendored as a submodule)
+│   └── src/main/java/ai/edgelm/
+│       ├── service/          EdgeLMService, AIScheduler, HTTP shim, NativeBridge
+│       └── runtime/          RuntimeActivity (picker), Onboarding, Playground,
+│                             ModelCatalog/Store, ModelDownloadService
+├── sdk/              thin client — EdgeLM.chat() hides Binder/JNI from apps
+├── demo-app-a / -b/  consumer apps (distinct UIDs → prove shared memory)
+├── docs/play/        Play release kit (privacy, store copy, data safety, QA, assets)
+└── docs/             architecture doc, brand book, phase notes (historical)
 ```
 
-## Architecture (Phase 0 slice)
+## Architecture
 
 ```
-demo-app-a ─┐   EdgeLM.chat()   ┌──────────────── ai.edgelm.runtime:core ───────────────┐
-            ├──── (sdk) ───────►│ EdgeLMService → NativeBridge (JNI) → llama_runner (C++) │
-demo-app-b ─┘   Binder / AIDL   │                         mmap(model.gguf, MAP_SHARED)    │
-                                └─────────────────────────────────────────────────────────┘
-                          one model, mmap'd once → pages shared across both apps
+any app ──┐   EdgeLM.chat()   ┌──────────── ai.edgelm.runtime:core ─────────────┐
+          ├──── (sdk) ───────►│ EdgeLMService → scheduler → NativeBridge (JNI)   │
+curl/     │  Binder / AIDL    │                → llama_runner (C++) → llama.cpp   │
+OpenAI ───┘  127.0.0.1:1408   │        mmap(model.gguf) — one copy, shared        │
+             (debug only)     └──────────────────────────────────────────────────┘
 ```
 
-## Getting started
-
-Prereqs: Android Studio (Koala+), NDK + CMake, an **arm64 device** (Phase 0 is CPU-only,
-real devices — add `x86_64` in `runtime-service/build.gradle.kts` for an emulator).
-
-```bash
-# 1. generate the Gradle wrapper (not committed)
-gradle wrapper --gradle-version 8.7
-
-# 2. build everything
-./gradlew assembleDebug
-
-# 3. install + push a small GGUF model, then run the memory experiment
-tools/push_model_and_install.sh ~/models/llama-3.2-3b-instruct-q4.gguf
-#   → open Demo A, tap Generate
-tools/measure_memory.sh          # snapshot: A only
-#   → open Demo B, tap Generate
-tools/measure_memory.sh          # snapshot: A + B — weights should NOT double
-```
-
-The scaffold streams **placeholder tokens** end-to-end (app → SDK → Binder → Service → JNI →
-mmap'd native core) so the whole pipeline and the shared-memory behaviour are testable
-immediately. Wiring the real llama.cpp decode loop is Week 1 and touches only
-`runtime-service/src/main/cpp/llama_runner.cpp` — nothing above the JNI line changes.
-
-## Phase 0 success gate
-
-Two apps, different UIDs, streaming from one runtime, with `dumpsys meminfo` showing the
-weights counted **once** (shared clean pages) at **> 30 tok/s** on the target flagship.
-Green gate → start Phase 1 (Vulkan/NPU backends, OpenAI HTTP shim, real scheduler, SDK 1.0).
-
-## What's intentionally NOT here yet
-GPU/NPU backends · scheduler/priorities · permission model · EdgeLM Hub · OpenAI HTTP shim ·
-KV paging · quantization switching · the system app UX. All designed in the architecture doc;
-none built until the gate above is green. Resist breadth.
+## Build 
