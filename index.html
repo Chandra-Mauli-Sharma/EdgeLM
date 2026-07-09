@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeLM — AI that runs on your phone</title>
+<meta name="description" content="EdgeLM is a shared, on-device AI runtime for Android. Run language models directly on your phone — private, offline, and shared by every app.">
+<meta property="og:title" content="EdgeLM — AI that runs on your phone">
+<meta property="og:description" content="A shared, on-device AI runtime for Android. Private, offline, shared by every app.">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --obsidian:#0B0E10; --carbon:#14181B; --card:#161B1F; --line:#242D33; --line2:#2E3941;
+    --signal:#9BFF3C; --volt:#2DE3FF; --mist:#EEF2F0; --fog:#B4C0C5; --steel:#84939B;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+    --mono:'JetBrains Mono','SF Mono',ui-monospace,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--obsidian);color:var(--mist);font-family:var(--sans);line-height:1.65;
+    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+  .grad{background:linear-gradient(120deg,var(--signal),var(--volt));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+
+  /* nav */
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);
+    background:rgba(11,14,16,.72);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;gap:20px;height:64px}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:19px;letter-spacing:-.5px}
+  .logo svg{width:30px;height:30px}
+  nav .links{margin-left:auto;display:flex;align-items:center;gap:26px}
+  nav .links a{color:var(--fog);font-size:14.5px}
+  nav .links a:hover{color:var(--mist)}
+  .btn{display:inline-flex;align-items:center;gap:8px;border-radius:12px;font-weight:700;
+    font-size:14.5px;padding:11px 18px;cursor:pointer;transition:.15s;white-space:nowrap}
+  .btn-p{background:var(--signal);color:var(--obsidian)}
+  .btn-p:hover{background:#B6FF5A;transform:translateY(-1px)}
+  .btn-g{border:1px solid var(--line2);color:var(--mist)}
+  .btn-g:hover{border-color:#3d4a52;background:var(--carbon)}
+  @media(max-width:720px){nav .links a:not(.navcta){display:none}}
+
+  /* hero */
+  header{position:relative;padding:96px 0 64px;overflow:hidden}
+  header::before{content:"";position:absolute;top:-260px;left:-160px;width:760px;height:760px;
+    background:radial-gradient(circle,rgba(155,255,60,.14),transparent 62%);pointer-events:none}
+  .hero{display:grid;grid-template-columns:1.15fr .85fr;gap:48px;align-items:center;position:relative}
+  .eyebrow{display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:2px;
+    color:var(--signal);border:1px solid var(--line2);background:var(--carbon);
+    border-radius:999px;padding:6px 14px;margin-bottom:22px}
+  h1{font-size:clamp(38px,6vw,64px);font-weight:800;letter-spacing:-2px;line-height:1.05}
+  .hero p.sub{color:var(--fog);font-size:19px;margin:20px 0 30px;max-width:540px}
+  .hero .cta{display:flex;gap:14px;flex-wrap:wrap}
+  .hero .note{color:var(--steel);font-size:13px;margin-top:16px}
+  .heroart{position:relative;display:flex;justify-content:center}
+  .heroart img{width:78%;max-width:320px;border-radius:26px;border:1px solid var(--line2);
+    box-shadow:0 40px 90px rgba(0,0,0,.6)}
+  .heroghost{position:absolute;width:150px;height:150px;top:-40px;right:6%;
+    filter:drop-shadow(0 20px 40px rgba(0,0,0,.5))}
+  @media(max-width:860px){.hero{grid-template-columns:1fr;gap:36px}.heroart{order:-1}
+    .heroghost{width:110px;height:110px;top:-24px}}
+
+  section{padding:76px 0;border-top:1px solid var(--line)}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:2px;color:var(--signal);margin-bottom:12px}
+  h2{font-size:clamp(28px,4vw,40px);font-weight:800;letter-spacing:-1px;margin-bottom:14px}
+  .lead{color:var(--fog);font-size:17px;max-width:640px;margin-bottom:40px}
+
+  /* features */
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+  @media(max-width:900px){.grid4{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:520px){.grid4{grid-template-columns:1fr}}
+  .feat{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:24px;transition:.18s}
+  .feat:hover{border-color:#33413f;transform:translateY(-3px)}
+  .feat .ic{font-size:26px;margin-bottom:14px}
+  .feat h3{font-size:18px;font-weight:700;margin-bottom:8px}
+  .feat p{color:var(--fog);font-size:14.5px}
+
+  /* steps */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;counter-reset:s}
+  @media(max-width:780px){.steps{grid-template-columns:1fr}}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:26px 24px;position:relative}
+  .step::before{counter-increment:s;content:"0" counter(s);font-family:var(--mono);
+    font-size:15px;color:var(--obsidian);background:var(--signal);border-radius:10px;
+    padding:4px 10px;font-weight:700}
+  .step h3{font-size:18px;font-weight:700;margin:16px 0 8px}
+  .step p{color:var(--fog);font-size:14.5px}
+
+  /* screenshots */
+  .shots{display:flex;gap:18px;overflow-x:auto;padding:6px 2px 18px;scroll-snap-type:x mandatory}
+  .shots img{height:520px;border-radius:22px;border:1px solid var(--line2);scroll-snap-align:center;flex:0 0 auto}
+  @media(max-width:520px){.shots img{height:430px}}
+
+  /* models */
+  .models{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
+  .model{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
+  .model .n{font-weight:700;font-size:16.5px}
+  .model .m{font-family:var(--mono);font-size:12px;color:var(--steel);margin:6px 0 12px}
+  .model p{color:var(--fog);font-size:14px}
+
+  /* developers */
+  .dev{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center}
+  @media(max-width:820px){.dev{grid-template-columns:1fr;gap:28px}}
+  pre{background:#0d1114;border:1px solid var(--line);border-radius:16px;padding:22px;overflow-x:auto}
+  code{font-family:var(--mono);font-size:14px;line-height:1.7;color:var(--mist)}
+  .tok{color:var(--volt)} .str{color:var(--signal)} .com{color:var(--steel)}
+  .dev li{color:var(--fog);margin:10px 0;list-style:none;padding-left:22px;position:relative;font-size:15px}
+  .dev li::before{content:"";position:absolute;left:2px;top:10px;width:7px;height:7px;border-radius:2px;background:var(--signal)}
+
+  /* cta band */
+  .band{background:linear-gradient(120deg,rgba(155,255,60,.10),rgba(45,227,255,.08));
+    border:1px solid var(--line2);border-radius:24px;padding:52px 40px;text-align:center;margin:16px 0}
+  .band h2{margin-bottom:10px}
+  .band p{color:var(--fog);margin-bottom:26px}
+  .band .cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+
+  footer{border-top:1px solid var(--line);padding:44px 0;color:var(--steel);font-size:14px}
+  footer .wrap{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  footer .links{margin-left:auto;display:flex;gap:22px}
+  footer a{color:var(--fog)} footer a:hover{color:var(--mist)}
+</style>
+</head>
+<body>
+
+<!-- ghost mark reused -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="matcha" x1="80" y1="80" x2="440" y2="470" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#D4FF6E"/><stop offset=".6" stop-color="#7CEB1E"/><stop offset="1" stop-color="#2DE3FF"/>
+    </linearGradient>
+    <radialGradient id="gloss" cx="0.34" cy="0.28" r="0.5">
+      <stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+</svg>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="#top">
+      <svg viewBox="0 0 512 512">
+        <path d="M256,80 C356,80 432,150 432,244 C432,300 404,340 404,372 C404,404 380,432 352,432 C330,432 320,414 300,414 C280,414 276,452 256,452 C236,452 232,414 212,414 C192,414 182,432 160,432 C132,432 108,404 108,372 C108,340 80,300 80,244 C80,150 156,80 256,80 Z" fill="url(#matcha)"/>
+        <ellipse cx="196" cy="176" rx="104" ry="60" fill="url(#gloss)"/><circle cx="330" cy="250" r="22" fill="#0B0E10"/>
+      </svg>
+      Edge<span class="grad">LM</span>
+    </a>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#models">Models</a>
+      <a href="#developers">Developers</a>
+      <a class="btn btn-p navcta" href="#get">Get the app</a>
+    </div>
+  </div>
+</nav>
+
+<header id="top">
+  <div class="wrap hero">
+    <div>
+      <span class="eyebrow">THE ANDROID AI RUNTIME</span>
+      <h1>AI that runs on <span class="grad">your phone</span>.</h1>
+      <p class="sub">EdgeLM runs language models directly on your device — private, offline, and
+      shared by every app. Download a model once; any EdgeLM-powered app can use it.</p>
+      <div class="cta">
+        <a class="btn btn-p" href="#get">Get the app</a>
+        <a class="btn btn-g" href="#developers">For developers →</a>
+      </div>
+      <p class="note">No cloud · no account · no tracking · works offline</p>
+    </div>
+    <div class="heroart">
+      <svg class="heroghost" viewBox="0 0 512 512">
+        <path d="M256,80 C356,80 432,150 432,244 C432,300 404,340 404,372 C404,404 380,432 352,432 C330,432 320,414 300,414 C280,414 276,452 256,452 C236,452 232,414 212,414 C192,414 182,432 160,432 C132,432 108,404 108,372 C108,340 80,300 80,244 C80,150 156,80 256,80 Z" fill="url(#matcha)"/>
+        <ellipse cx="196" cy="176" rx="104" ry="60" fill="url(#gloss)"/><circle cx="330" cy="250" r="22" fill="#0B0E10"/>
+      </svg>
+      <img src="docs/play/screenshots/marketing/01_recommended.png" alt="EdgeLM — pick the right AI for your phone">
+    </div>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <div class="kicker">WHY EDGELM</div>
+    <h2>On-device by default.</h2>
+    <p class="lead">Most AI apps send your words to a server. EdgeLM keeps everything on the phone —
+    faster, private, and free of per-request cloud costs.</p>
+    <div class="grid4">
+      <div class="feat"><div class="ic">🔒</div><h3>Private by design</h3><p>Your prompts and the AI's replies never leave your device. No cloud, no account, no tracking, no ads.</p></div>
+      <div class="feat"><div class="ic">✈️</div><h3>Works offline</h3><p>Once a model is downloaded, EdgeLM runs with no internet at all — on a plane, in a tunnel, anywhere.</p></div>
+      <div class="feat"><div class="ic">⚡</div><h3>Shared &amp; efficient</h3><p>One model, loaded once and served to every app — so a second app adds almost no extra memory.</p></div>
+      <div class="feat"><div class="ic">∅</div><h3>No cloud cost</h3><p>Nothing to pay per request and no network round-trips. The compute you already own does the work.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="kicker">HOW IT WORKS</div>
+    <h2>Three taps to on-device AI.</h2>
+    <p class="lead">EdgeLM guides you through setup and recommends the right model for your phone.</p>
+    <div class="steps">
+      <div class="step"><h3>Install EdgeLM Runtime</h3><p>A quick welcome explains how on-device AI keeps your data private.</p></div>
+      <div class="step"><h3>Pick an AI</h3><p>EdgeLM suggests the best model for your phone — one tap to download. Power users can switch to Advanced for the full catalog.</p></div>
+      <div class="step"><h3>Use it</h3><p>Try it instantly in the built-in playground. Any EdgeLM-powered app on your phone can now use AI.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="screens">
+  <div class="wrap">
+    <div class="kicker">A LOOK INSIDE</div>
+    <h2>Simple to start, powerful when you want it.</h2>
+    <p class="lead">Plain-language by default — download the recommended model and chat. Full model
+    details and controls are one tap away in Advanced.</p>
+  </div>
+  <div class="wrap">
+    <div class="shots">
+      <img src="docs/play/screenshots/marketing/01_recommended.png" alt="The right AI for your phone">
+      <img src="docs/play/screenshots/marketing/02_playground.png" alt="Chat privately, on your device">
+      <img src="docs/play/screenshots/marketing/03_models.png" alt="Choose your assistant">
+      <img src="docs/play/screenshots/marketing/04_offline.png" alt="Fast, and fully offline">
+      <img src="docs/play/screenshots/marketing/05_advanced.png" alt="Full control when you want it">
+    </div>
+  </div>
+</section>
+
+<section id="models">
+  <div class="wrap">
+    <div class="kicker">CHOOSE YOUR MODEL</div>
+    <h2>A model for every phone.</h2>
+    <p class="lead">From tiny-and-fast to more capable — each shown in plain language with its size and
+    what it's best for, and a warning if your phone may not have enough memory. Keep several installed
+    and switch instantly.</p>
+    <div class="models">
+      <div class="model"><div class="n">Quick Assistant</div><div class="m">Qwen2.5 0.5B · Fastest</div><p>Fast and light — quick questions and short replies on any phone.</p></div>
+      <div class="model"><div class="n">Everyday Assistant</div><div class="m">Llama 3.2 1B · Balanced</div><p>A well-rounded helper for chatting, writing, and summarizing.</p></div>
+      <div class="model"><div class="n">Smart Assistant</div><div class="m">Qwen2.5 1.5B · Smarter</div><p>Sharper answers and better with other languages.</p></div>
+      <div class="model"><div class="n">Pro Assistant</div><div class="m">Llama 3.2 3B · Capable</div><p>Higher-quality writing and thinking. Best on newer phones.</p></div>
+      <div class="model"><div class="n">Expert Assistant</div><div class="m">Phi-3.5 mini · Most capable</div><p>Best for tricky questions, math, and coding help.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="developers">
+  <div class="wrap">
+    <div class="kicker">FOR DEVELOPERS</div>
+    <h2>On-device AI in a few lines.</h2>
+    <p class="lead">EdgeLM is a shared runtime — your app calls it instead of bundling and managing
+    model weights. Add the SDK and stream tokens with an OpenAI-style API.</p>
+    <div class="dev">
+      <pre><code><span class="com">// build.gradle</span>
+implementation(<span class="str">"ai.edgelm:sdk:0.1.0"</span>)
+
+<span class="com">// stream a reply — runs entirely on device</span>
+EdgeLM.<span class="tok">chat</span>(
+    prompt = <span class="str">"Explain on-device AI"</span>,
+    sessionId = <span class="str">"chat-1"</span>
+) { token -&gt; append(token) }
+
+<span class="com">// graceful if the runtime isn't installed</span>
+EdgeLM.<span class="tok">promptInstall</span>(context)</code></pre>
+      <ul>
+        <li><strong>One shared model</strong> across every app — no per-app weights, minimal extra memory.</li>
+        <li><strong>Permission-gated</strong> — apps request access; the runtime serves them by priority.</li>
+        <li><strong>Streaming + sessions</strong> — token callbacks and multi-turn context out of the box.</li>
+        <li><strong>OpenAI-compatible</strong> HTTP shim for local tools during development.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="get">
+  <div class="wrap">
+    <div class="band">
+      <h2>Bring AI on-device.</h2>
+      <p>Private, offline, shared by every app. Coming soon to Google Play.</p>
+      <div class="cta">
+        <a class="btn btn-p" href="#" aria-disabled="true">Google Play — coming soon</a>
+        <a class="btn btn-g" href="privacy.html">Privacy policy</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 EdgeLM · On-device. Private. Offline.</span>
+    <span class="links">
+      <a href="#features">Features</a>
+      <a href="#developers">Developers</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="mailto:chandramaulisharma26@gmail.com">Contact</a>
+    </span>
+  </div>
+</footer>
+
+</body>
+</html>
