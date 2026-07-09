@@ -30,4 +30,13 @@ interface IEdgeLMService {
 
     /** Which models are currently loaded/warm in the shared runtime. */
     String[] warmModels();
+
+    /** (Re)load model.gguf from the app's files dir (after it's been downloaded).
+     *  Returns true if a model is now loaded. Appended at the end for ABI stability. */
+    boolean reloadModel();
+
+    /** Unload the model now to reclaim RAM (it lazily reloads on the next request).
+     *  Returns true if the runtime is now idle (no model resident). Appended at the
+     *  end for ABI stability — never reorder methods above this. */
+    boolean unloadModel();
 }

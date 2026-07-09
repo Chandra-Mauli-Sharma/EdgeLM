@@ -1,0 +1,13 @@
+<svg width="880" height="200" viewBox="0 0 880 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EdgeLM wordmark (light)">
+  <defs>
+    <linearGradient id="matcha" x1="25" y1="25" x2="160" y2="170" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#D4FF6E"/><stop offset=".6" stop-color="#7CEB1E"/><stop offset="1" stop-color="#2DE3FF"/></linearGradient>
+    <radialGradient id="gloss" cx="0.34" cy="0.28" r="0.5"><stop offset="0" stop-color="#ffffff" stop-opacity=".5"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="lm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4FB80A"/><stop offset="1" stop-color="#12A9C6"/></linearGradient>
+  </defs>
+  <g transform="translate(18,18) scale(0.3125)">
+    <path d="M256,80 C356,80 432,150 432,244 C432,300 404,340 404,372 C404,404 380,432 352,432 C330,432 320,414 300,414 C280,414 276,452 256,452 C236,452 232,414 212,414 C192,414 182,432 160,432 C132,432 108,404 108,372 C108,340 80,300 80,244 C80,150 156,80 256,80 Z" fill="url(#matcha)"/>
+    <ellipse cx="196" cy="176" rx="104" ry="60" fill="url(#gloss)"/>
+    <circle cx="330" cy="250" r="22" fill="#0B0E10"/>
+  </g>
+  <text x="208" y="130" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif" font-size="96" font-weight="800" letter-spacing="-3" fill="#0B0E10">Edge<tspan fill="url(#lm)">LM</tspan></text>
+</svg>

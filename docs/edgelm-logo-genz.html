@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeLM — Logo Concepts (Gen-Z)</title>
+<style>
+  :root{
+    --obsidian:#0B0E10; --carbon:#14181B; --line:#242D33; --line2:#2E3941;
+    --signal:#9BFF3C; --volt:#2DE3FF; --violet:#B78CFF; --mist:#EEF2F0; --fog:#B4C0C5; --steel:#84939B;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+    --mono:'JetBrains Mono','SF Mono',ui-monospace,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--obsidian);color:var(--mist);font-family:var(--sans);line-height:1.6;
+    -webkit-font-smoothing:antialiased;padding:48px clamp(20px,5vw,72px) 100px}
+  .wrap{max-width:1180px;margin:0 auto}
+  .badge{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line2);background:var(--carbon);
+    border-radius:999px;padding:6px 14px;font-family:var(--mono);font-size:11.5px;color:var(--violet);margin-bottom:20px}
+  h1{font-size:clamp(30px,5vw,46px);font-weight:800;letter-spacing:-1.5px;margin-bottom:12px}
+  h1 .g{background:linear-gradient(120deg,var(--signal),var(--volt) 50%,var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--fog);font-size:17px;max-width:660px}
+  .bar{display:flex;align-items:center;gap:14px;margin:28px 0 8px;flex-wrap:wrap}
+  .toggle{display:inline-flex;border:1px solid var(--line2);border-radius:10px;overflow:hidden;font-family:var(--mono);font-size:12.5px}
+  .toggle button{background:var(--carbon);color:var(--fog);border:none;padding:9px 16px;cursor:pointer}
+  .toggle button.on{background:var(--signal);color:var(--obsidian);font-weight:700}
+  .hint{font-family:var(--mono);font-size:11.5px;color:var(--steel)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:20px;margin-top:22px}
+  .card{background:var(--carbon);border:1px solid var(--line);border-radius:18px;padding:22px;transition:.18s;position:relative}
+  .card:hover{border-color:#3a3050;transform:translateY(-3px)}
+  .stage{display:flex;align-items:center;justify-content:center;height:190px;border-radius:14px;
+    background:var(--obsidian);border:1px solid var(--line);transition:.25s}
+  body.light-preview .stage{background:#F5F7F6;border-color:#DDE3E0}
+  .stage svg{width:134px;height:134px;filter:drop-shadow(0 12px 30px rgba(0,0,0,.5))}
+  .num{font-family:var(--mono);font-size:11px;color:var(--steel)}
+  h3{font-size:18px;font-weight:700;letter-spacing:-.3px;margin:16px 0 5px}
+  .card p{color:var(--fog);font-size:13.5px}
+  .foot{margin-top:40px;border-top:1px solid var(--line);padding-top:22px;color:var(--steel);font-size:13px}
+  .foot b{color:var(--fog)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="badge">✦ EDGELM · GEN-Z DIRECTION</div>
+  <h1>Louder <span class="g">EdgeLM</span> marks</h1>
+  <p class="sub">Same palette, more attitude — blobs, sparkles, chrome, and a lil mascot. Gradients, gloss, and squish for a mark that pops on a home screen. Toggle light preview to sanity-check both backgrounds.</p>
+
+  <div class="bar">
+    <div class="toggle">
+      <button id="btnDark" class="on" onclick="setBg('dark')">Dark preview</button>
+      <button id="btnLight" onclick="setBg('light')">Light preview</button>
+    </div>
+    <span class="hint">drop the number you're vibing with → I export the full icon set.</span>
+  </div>
+
+  <div class="grid">
+
+    <!-- 1 GOOEY BLOB E -->
+    <div class="card">
+      <div class="stage">
+        <svg viewBox="0 0 512 512"><defs>
+          <linearGradient id="a" x1="40" y1="40" x2="472" y2="472" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#C6FF3D"/><stop offset=".55" stop-color="#2DE3FF"/><stop offset="1" stop-color="#B78CFF"/></linearGradient>
+          <radialGradient id="agl" cx="0.35" cy="0.28" r="0.5"><stop offset="0" stop-color="#ffffff" stop-opacity=".55"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient></defs>
+          <path d="M256,44 C368,36 476,104 466,238 C458,354 402,474 252,468 C126,463 44,384 46,250 C48,120 152,52 256,44 Z" fill="url(#a)"/>
+          <ellipse cx="196" cy="150" rx="128" ry="74" fill="url(#agl)"/>
+          <g fill="#0B0E10"><rect x="176" y="168" width="46" height="176" rx="23"/><rect x="176" y="168" width="150" height="46" rx="23"/><rect x="176" y="233" width="112" height="46" rx="23"/><rect x="176" y="298" width="150" height="46" rx="23"/></g>
+        </svg>
+      </div>
+      <div class="num">01</div><h3>Gooey E</h3>
+      <p>Squishy holo blob (lime→cyan→violet) with a glossy shine and a knockout E. Playful, sticker-ready, very “app that’s actually fun.”</p>
+    </div>
+
+    <!-- 2 SPARKLE -->
+    <div class="card">
+      <div class="stage">
+        <svg viewBox="0 0 512 512"><defs>
+          <linearGradient id="b" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#B6FF5A"/><stop offset="1" stop-color="#2DE3FF"/></linearGradient></defs>
+          <rect width="512" height="512" rx="120" fill="url(#b)"/>
+          <path d="M256,70 C286,196 316,226 442,256 C316,286 286,316 256,442 C226,316 196,286 70,256 C196,226 226,196 256,70 Z" fill="#0B0E10"/>
+          <path d="M386,96 C396,146 366,176 316,186 C366,196 396,226 386,276 C376,226 406,196 456,186 C406,176 376,146 386,96 Z" fill="#0B0E10" opacity=".55" transform="translate(-6,-4) scale(.62) translate(150,60)"/>
+        </svg>
+      </div>
+      <div class="num">02</div><h3>Sparkle ✦</h3>
+      <p>The universal “AI magic” twinkle on a lime→cyan tile. Instantly reads as generative/AI, dead simple, scales to a favicon beautifully.</p>
+    </div>
+
+    <!-- 3 SMILEY BOT -->
+    <div class="card">
+      <div class="stage">
+        <svg viewBox="0 0 512 512"><defs>
+          <linearGradient id="c" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#C6FF3D"/><stop offset=".55" stop-color="#2DE3FF"/><stop offset="1" stop-color="#B78CFF"/></linearGradient>
+          <radialGradient id="cgl" cx="0.3" cy="0.24" r="0.5"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>
+          <rect x="40" y="80" width="432" height="392" rx="128" fill="url(#c)"/>
+          <rect x="40" y="80" width="432" height="392" rx="128" fill="url(#cgl)"/>
+          <circle cx="248" cy="60" r="20" fill="#2DE3FF"/><rect x="242" y="60" width="12" height="44" rx="6" fill="#2DE3FF"/>
+          <g fill="#0B0E10"><circle cx="196" cy="236" r="30"/><circle cx="316" cy="236" r="30"/></g>
+          <path d="M188,318 Q256,392 324,318" fill="none" stroke="#0B0E10" stroke-width="30" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="num">03</div><h3>Smiley Bot</h3>
+      <p>A friendly on-device buddy — gradient face, spark antenna, big grin. Mascot energy that makes “AI runtime” feel approachable, not corporate.</p>
+    </div>
+
+    <!-- 4 CHROME E -->
+    <div class="card">
+      <div class="stage">
+        <svg viewBox="0 0 512 512"><defs>
+          <linearGradient id="dt" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1A1F23"/><stop offset="1" stop-color="#0B0E10"/></linearGradient>
+          <linearGradient id="d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EAFFFE"/><stop offset=".33" stop-color="#2DE3FF"/><stop offset=".58" stop-color="#9BFF3C"/><stop offset=".8" stop-color="#2E7D3A"/><stop offset="1" stop-color="#EAFFFE"/></linearGradient></defs>
+          <rect width="512" height="512" rx="112" fill="url(#dt)" stroke="#2A3238" stroke-width="2"/>
+          <g fill="url(#d)"><rect x="156" y="150" width="52" height="212" rx="20"/><rect x="156" y="150" width="196" height="52" rx="20"/><rect x="156" y="230" width="150" height="52" rx="20"/><rect x="156" y="310" width="196" height="52" rx="20"/></g>
+          <rect x="156" y="150" width="196" height="14" rx="7" fill="#ffffff" opacity=".7"/>
+        </svg>
+      </div>
+      <div class="num">04</div><h3>Chrome E</h3>
+      <p>Liquid-metal Y2K E with a cyan→lime→white sheen and a glossy top rail. Nostalgic-but-fresh; feels expensive and a little rave.</p>
+    </div>
+
+    <!-- 5 HOLO ORB -->
+    <div class="card">
+      <div class="stage">
+        <svg viewBox="0 0 512 512"><defs>
+          <linearGradient id="et" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#161B1F"/><stop offset="1" stop-color="#0B0E10"/></linearGradient>
+          <radialGradient id="e" cx="0.4" cy="0.36" r="0.62"><stop offset="0" stop-color="#EFFFC9"/><stop offset=".38" stop-color="#8BFF4A"/><stop offset=".7" stop-color="#2DE3FF"/><stop offset="1" stop-color="#8A5CFF"/></radialGradient>
+          <radialGradient id="esp" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>
+          <rect width="512" height="512" rx="112" fill="url(#et)"/>
+          <circle cx="256" cy="256" r="176" fill="url(#e)"/>
+          <ellipse cx="198" cy="188" rx="70" ry="44" fill="url(#esp)" opacity=".7"/>
+          <path d="M372,120 C380,150 360,170 330,178 C360,186 380,206 372,236 C364,206 384,186 414,178 C384,170 364,150 372,120 Z" fill="#fff" opacity=".9"/>
+        </svg>
+      </div>
+      <div class="num">05</div><h3>Holo Orb</h3>
+      <p>A dreamy iridescent orb (lime→cyan→violet) with a specular shine and a sparkle. Peak “aesthetic” — feels alive, ambient, a little magic.</p>
+    </div>
+
+    <!-- 6 BUBBLE BOLT -->
+    <div class="card">
+      <div class="stage">
+        <svg viewBox="0 0 512 512"><defs>
+          <linearGradient id="ft" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#161B1F"/><stop offset="1" stop-color="#0B0E10"/></linearGradient>
+          <radialGradient id="f" cx="0.36" cy="0.3" r="0.7"><stop offset="0" stop-color="#EBFFD1"/><stop offset=".4" stop-color="#9BFF3C"/><stop offset="1" stop-color="#1F8A1B"/></radialGradient>
+          <radialGradient id="fsp" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>
+          <rect width="512" height="512" rx="112" fill="url(#ft)"/>
+          <circle cx="256" cy="256" r="176" fill="url(#f)"/>
+          <ellipse cx="196" cy="184" rx="66" ry="40" fill="url(#fsp)" opacity=".85"/>
+          <path d="M300,140 L196,272 L256,272 L212,372 L330,232 L266,232 Z" fill="#0B0E10"/>
+        </svg>
+      </div>
+      <div class="num">06</div><h3>Bubble Bolt</h3>
+      <p>A glossy green bubble with a punchy bolt cut-out — energy, speed, on-device power. Chunky and tactile, like you could poke it.</p>
+    </div>
+
+    <!-- 7 PIXEL E -->
+    <div class="card">
+      <div class="stage">
+        <svg viewBox="0 0 512 512"><defs>
+          <linearGradient id="gt" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#1A1F23"/><stop offset="1" stop-color="#0B0E10"/></linearGradient></defs>
+          <rect width="512" height="512" rx="112" fill="url(#gt)" stroke="#2A3238" stroke-width="2"/>
+          <g fill="#9BFF3C">
+            <rect x="150" y="112" width="46" height="46" rx="9"/><rect x="202" y="112" width="46" height="46" rx="9"/><rect x="254" y="112" width="46" height="46" rx="9"/><rect x="306" y="112" width="46" height="46" rx="9"/>
+            <rect x="150" y="164" width="46" height="46" rx="9"/>
+            <rect x="150" y="216" width="46" height="46" rx="9"/><rect x="202" y="216" width="46" height="46" rx="9"/><rect x="254" y="216" width="46" height="46" rx="9"/>
+            <rect x="150" y="268" width="46" height="46" rx="9"/>
+            <rect x="150" y="320" width="46" height="46" rx="9"/><rect x="202" y="320" width="46" height="46" rx="9"/><rect x="254" y="320" width="46" height="46" rx="9"/><rect x="306" y="320" width="46" height="46" rx="9"/>
+          </g>
+          <g fill="#2DE3FF"><rect x="306" y="216" width="46" height="46" rx="9"/><rect x="306" y="268" width="46" height="46" rx="9"/></g>
+        </svg>
+      </div>
+      <div class="num">07</div><h3>Pixel E</h3>
+      <p>8-bit arcade E with cyan accent pixels. Retro-gaming nostalgia that reads instantly and looks great tiny — playful dev-core.</p>
+    </div>
+
+    <!-- 8 GOO MATCHA -->
+    <div class="card">
+      <div class="stage">
+        <svg viewBox="0 0 512 512"><defs>
+          <linearGradient id="ht" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#161B1F"/><stop offset="1" stop-color="#0B0E10"/></linearGradient>
+          <linearGradient id="h" x1="80" y1="80" x2="440" y2="470" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#D4FF6E"/><stop offset=".6" stop-color="#7CEB1E"/><stop offset="1" stop-color="#2DE3FF"/></linearGradient>
+          <radialGradient id="hgl" cx="0.34" cy="0.28" r="0.5"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>
+          <rect width="512" height="512" rx="112" fill="url(#ht)"/>
+          <path d="M256,80 C356,80 432,150 432,244 C432,300 404,340 404,372 C404,404 380,432 352,432 C330,432 320,414 300,414 C280,414 276,452 256,452 C236,452 232,414 212,414 C192,414 182,432 160,432 C132,432 108,404 108,372 C108,340 80,300 80,244 C80,150 156,80 256,80 Z" fill="url(#h)"/>
+          <ellipse cx="196" cy="176" rx="104" ry="60" fill="url(#hgl)"/>
+          <circle cx="330" cy="250" r="22" fill="#0B0E10"/>
+        </svg>
+      </div>
+      <div class="num">08</div><h3>Goo Drip</h3>
+      <p>A matcha-lime blob mid-drip — liquid, organic, oddly satisfying. The most “internet-native” of the set; a scroll-stopper on a feed.</p>
+    </div>
+
+  </div>
+
+  <div class="foot">
+    <b>Vibe check:</b> 01 (Gooey E) and 08 (Goo Drip) are the most playful/sticker-y. 02 (Sparkle) is the safest Gen-Z bet — universal AI ✦ energy that scales anywhere. 03 (Smiley) gives you a mascot. 05 (Holo Orb) is peak aesthetic. 04/06/07 keep an edge/tech read while still feeling fun.
+    <br><br>Say the number and I'll ship the full set — app icon, adaptive (fg/bg layers), favicon, wordmark — as SVG + PNG.
+  </div>
+</div>
+
+<script>
+  function setBg(mode){
+    document.body.classList.toggle('light-preview', mode==='light');
+    document.getElementById('btnDark').classList.toggle('on', mode==='dark');
+    document.getElementById('btnLight').classList.toggle('on', mode==='light');
+  }
+</script>
+</body>
+</html>

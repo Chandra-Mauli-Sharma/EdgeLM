@@ -7,5 +7,13 @@
     <queries>
         <package android:name="ai.edgelm.runtime" />
     </queries>
+
+    <!--
+      The runtime gates its service behind this permission. Declaring it here means
+      every app that includes the EdgeLM SDK inherits it via manifest merge — the
+      developer doesn't have to add anything, and the app can bind the runtime.
+      (Defined by the runtime app with protectionLevel="normal", granted at install.)
+    -->
+    <uses-permission android:name="ai.edgelm.permission.USE_RUNTIME" />
 </manifest>
 

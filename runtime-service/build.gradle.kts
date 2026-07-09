@@ -15,8 +15,9 @@ android {
         versionName = "0.0.1-phase0"
 
         ndk {
-            // Phase 0: real devices only. Add "x86_64" to run on an emulator.
-            abiFilters += listOf("arm64-v8a")
+            // arm64-v8a is the primary target; armeabi-v7a adds legacy 32-bit reach
+            // (much slower — small models only). Add "x86_64" to run on an emulator.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
         externalNativeBuild {
             cmake {
@@ -36,7 +37,10 @@ android {
         }
     }
 
-    buildFeatures { aidl = true }
+    buildFeatures {
+        aidl = true
+        buildConfig = true   // BuildConfig.DEBUG gates the localhost HTTP shim
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -49,4 +53,6 @@ dependencies {
     implementation(project(":contract"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.nanohttpd:nanohttpd:2.3.1")   // OpenAI-compatible HTTP shim
+    implementation("androidx.activity:activity-ktx:1.9.0")   // landing/status screen
+    implementation("androidx.core:core-splashscreen:1.0.1")  // branded splash screen
 }

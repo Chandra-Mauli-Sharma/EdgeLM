@@ -1,0 +1,10 @@
+<!-- Status-bar icon: white ghost silhouette (system tints it). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M256,80 C356,80 432,150 432,244 C432,300 404,340 404,372 C404,404 380,432 352,432 C330,432 320,414 300,414 C280,414 276,452 256,452 C236,452 232,414 212,414 C192,414 182,432 160,432 C132,432 108,404 108,372 C108,340 80,300 80,244 C80,150 156,80 256,80 Z" />
+</vector>

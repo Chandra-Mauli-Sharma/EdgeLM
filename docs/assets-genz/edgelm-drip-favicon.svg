@@ -1,0 +1,8 @@
+<svg width="64" height="64" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EdgeLM favicon">
+  <defs>
+    <linearGradient id="matcha" x1="60" y1="50" x2="452" y2="470" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#D4FF6E"/><stop offset=".6" stop-color="#7CEB1E"/><stop offset="1" stop-color="#2DE3FF"/></linearGradient>
+  </defs>
+  <!-- bold, simplified blob + eye for 16px -->
+  <path d="M256,52 C368,52 452,138 452,244 C452,306 420,352 420,388 C420,420 396,448 360,448 C336,448 324,428 300,428 C276,428 272,472 256,472 C240,472 236,428 212,428 C188,428 176,448 152,448 C116,448 92,420 92,388 C92,352 60,306 60,244 C60,138 144,52 256,52 Z" fill="url(#matcha)"/>
+  <circle cx="336" cy="250" r="26" fill="#0B0E10"/>
+</svg>

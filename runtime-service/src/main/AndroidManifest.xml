@@ -4,7 +4,35 @@
     <!-- Loopback ServerSocket for the OpenAI-compatible HTTP shim (127.0.0.1:1408). -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Ongoing "EdgeLM running" notification + keeping the shared runtime alive
+         against aggressive OEM freezers while apps are actively using it. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Model downloads run as a dataSync foreground service so a large transfer
+         survives the user leaving the picker screen. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- The gate to the shared runtime. Any app that wants to bind EdgeLM must
+         declare this permission; it's enforced by the OS on the service below.
+         The EdgeLM SDK declares it for consumers automatically (manifest merge),
+         so integrating apps get it for free. protectionLevel="normal" = granted
+         at install and visible on the app's Play listing (auditable, no ecosystem
+         friction). Per-app user consent can layer on top later. -->
+    <permission
+        android:name="ai.edgelm.permission.USE_RUNTIME"
+        android:protectionLevel="normal"
+        android:label="Use on-device AI (EdgeLM)"
+        android:description="@string/perm_use_runtime_desc" />
+
+    <!-- The runtime app itself binds its own service (status screen), so it holds
+         the permission too. -->
+    <uses-permission android:name="ai.edgelm.permission.USE_RUNTIME" />
+
     <application
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="EdgeLM Runtime"
         android:allowBackup="false">
 
@@ -13,17 +41,52 @@
           weights mmap'd here are shared across every bound app via the OS
           page cache — the crux of the Phase 0 thesis.
 
-          exported=true so other apps' processes can bind. In Phase 1 this is
-          gated by a signature/permission; Phase 0 leaves it open for the spike.
+          exported=true so other apps' processes can bind, but android:permission
+          gates every bind: only callers holding ai.edgelm.permission.USE_RUNTIME
+          get through. The OS enforces this before onBind is ever reached.
         -->
         <service
             android:name="ai.edgelm.service.EdgeLMService"
             android:process=":core"
-            android:exported="true">
+            android:exported="true"
+            android:permission="ai.edgelm.permission.USE_RUNTIME"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <!-- No standard FGS type fits a shared, general-purpose on-device
+                 inference runtime; "specialUse" is the honest declaration.
+                 (Play requires this justification string at review time.) -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Shared on-device AI inference runtime serving other apps' local model requests." />
             <intent-filter>
                 <action android:name="ai.edgelm.BIND_RUNTIME" />
             </intent-filter>
         </service>
+
+        <!-- Foreground service that downloads model GGUFs; survives leaving the app. -->
+        <service
+            android:name="ai.edgelm.runtime.ModelDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- In-app chat playground to smoke-test the runtime + active model. -->
+        <activity
+            android:name="ai.edgelm.runtime.PlaygroundActivity"
+            android:exported="false"
+            android:label="EdgeLM Playground"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.EdgeLM.Runtime" />
+
+        <!-- Landing / status screen so the runtime is a real, openable, listable app. -->
+        <activity
+            android:name="ai.edgelm.runtime.RuntimeActivity"
+            android:exported="true"
+            android:theme="@style/Theme.EdgeLM.Splash">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
     </application>
 </manifest>

@@ -1,0 +1,8 @@
+<svg width="64" height="64" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EdgeLM favicon">
+  <defs>
+    <linearGradient id="holo" x1="30" y1="30" x2="482" y2="482" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#C6FF3D"/><stop offset=".55" stop-color="#2DE3FF"/><stop offset="1" stop-color="#B78CFF"/></linearGradient>
+  </defs>
+  <!-- bold, simplified for 16px: full blob + chunky knockout E, no gloss -->
+  <path d="M256,28 C380,20 492,96 484,240 C476,364 414,492 252,486 C118,481 28,396 30,252 C32,112 144,36 256,28 Z" fill="url(#holo)"/>
+  <g fill="#0B0E10"><rect x="168" y="150" width="58" height="212" rx="26"/><rect x="168" y="150" width="176" height="58" rx="26"/><rect x="168" y="227" width="132" height="58" rx="26"/><rect x="168" y="304" width="176" height="58" rx="26"/></g>
+</svg>

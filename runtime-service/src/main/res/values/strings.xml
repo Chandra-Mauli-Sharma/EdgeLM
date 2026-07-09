@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="perm_use_runtime_desc">Allows the app to run AI models on this device through the shared EdgeLM runtime, keeping inference local and private.</string>
+
+    <color name="obsidian">#0B0E10</color>
+    <color name="signal">#9BFF3C</color>
+    <color name="volt">#2DE3FF</color>
+</resources>

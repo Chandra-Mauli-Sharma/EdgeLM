@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Branded splash: obsidian background, green ghost mark. On Android 12+ this
+         drives the system splash; on older versions the SplashScreen library draws
+         an equivalent. After the splash, the activity switches to postSplashScreenTheme. -->
+    <style name="Theme.EdgeLM.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/obsidian</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_ghost</item>
+        <item name="windowSplashScreenAnimationDuration">500</item>
+        <!-- Wordmark at the bottom of the splash (Android 12+ shows this). -->
+        <item name="android:windowSplashScreenBrandingImage">@drawable/wordmark_edgelm</item>
+        <item name="postSplashScreenTheme">@style/Theme.EdgeLM.Runtime</item>
+    </style>
+
+    <!-- The real app theme used once the splash is dismissed. -->
+    <style name="Theme.EdgeLM.Runtime" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/obsidian</item>
+        <item name="android:navigationBarColor">@color/obsidian</item>
+        <item name="android:windowBackground">@color/obsidian</item>
+    </style>
+</resources>

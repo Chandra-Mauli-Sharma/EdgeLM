@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EdgeLM Gooey adaptive icon (108dp)">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#14181B"/><stop offset="1" stop-color="#0B0E10"/></linearGradient>
+    <linearGradient id="holo" x1="46" y1="44" x2="466" y2="468" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#C6FF3D"/><stop offset=".55" stop-color="#2DE3FF"/><stop offset="1" stop-color="#B78CFF"/></linearGradient>
+    <radialGradient id="gloss" cx="0.35" cy="0.28" r="0.5"><stop offset="0" stop-color="#ffffff" stop-opacity=".55"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+  </defs>
+  <!-- BACKGROUND layer (full bleed) -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <!-- safe-zone guide: keep FOREGROUND inside this circle (export layers separately) -->
+  <circle cx="256" cy="256" r="156" fill="none" stroke="#2A3238" stroke-width="1.5" stroke-dasharray="6 8" opacity=".5"/>
+  <!-- FOREGROUND layer, scaled to ~0.6 so masking can't clip the blob -->
+  <g transform="translate(256,256) scale(0.6) translate(-256,-256)">
+    <path d="M256,44 C368,36 476,104 466,238 C458,354 402,474 252,468 C126,463 44,384 46,250 C48,120 152,52 256,44 Z" fill="url(#holo)"/>
+    <ellipse cx="196" cy="150" rx="128" ry="74" fill="url(#gloss)"/>
+    <g fill="#0B0E10"><rect x="176" y="168" width="46" height="176" rx="23"/><rect x="176" y="168" width="150" height="46" rx="23"/><rect x="176" y="233" width="112" height="46" rx="23"/><rect x="176" y="298" width="150" height="46" rx="23"/></g>
+  </g>
+</svg>

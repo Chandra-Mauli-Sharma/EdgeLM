@@ -1,0 +1,29 @@
+<!-- EdgeLM splash mark: green "Goo Drip" ghost on obsidian, inset to sit inside
+     the circular splash mask on Android 12+. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="288dp"
+    android:height="288dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group
+        android:pivotX="256"
+        android:pivotY="256"
+        android:scaleX="0.82"
+        android:scaleY="0.82">
+        <!-- body with a dripping base -->
+        <path
+            android:fillColor="#9BFF3C"
+            android:pathData="M256,80 C356,80 432,150 432,244 C432,300 404,340 404,372 C404,404 380,432 352,432 C330,432 320,414 300,414 C280,414 276,452 256,452 C236,452 232,414 212,414 C192,414 182,432 160,432 C132,432 108,404 108,372 C108,340 80,300 80,244 C80,150 156,80 256,80 Z" />
+        <!-- eyes -->
+        <path
+            android:fillColor="#0B0E10"
+            android:pathData="M188,232 a26,26 0 1,0 52,0 a26,26 0 1,0 -52,0 Z" />
+        <path
+            android:fillColor="#0B0E10"
+            android:pathData="M272,232 a26,26 0 1,0 52,0 a26,26 0 1,0 -52,0 Z" />
+        <!-- a locally generated token: cyan spark -->
+        <path
+            android:fillColor="#2DE3FF"
+            android:pathData="M256,300 a18,18 0 1,0 36,0 a18,18 0 1,0 -36,0 Z" />
+    </group>
+</vector>
