@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EdgeLM — Privacy Policy</title>
+<meta name="description" content="EdgeLM runs AI models on your device. It collects no personal data; prompts and responses never leave your phone.">
+<style>
+  :root{
+    --obsidian:#0B0E10; --carbon:#14181B; --line:#242D33; --line2:#2E3941;
+    --signal:#9BFF3C; --volt:#2DE3FF; --mist:#EEF2F0; --fog:#B4C0C5; --steel:#84939B;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--obsidian);color:var(--mist);font-family:var(--sans);
+    line-height:1.7;-webkit-font-smoothing:antialiased;padding:56px 20px 96px}
+  .wrap{max-width:760px;margin:0 auto}
+  .brand{display:flex;align-items:center;gap:14px;margin-bottom:8px}
+  .brand svg{width:44px;height:44px;filter:drop-shadow(0 6px 18px rgba(0,0,0,.5))}
+  .brand .name{font-size:26px;font-weight:800;letter-spacing:-1px}
+  .brand .name .lm{background:linear-gradient(120deg,var(--signal),var(--volt));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  h1{font-size:clamp(28px,5vw,40px);font-weight:800;letter-spacing:-1px;margin:18px 0 6px}
+  .meta{color:var(--steel);font-size:14px;margin-bottom:8px}
+  .lead{color:var(--fog);font-size:17px;background:var(--carbon);border:1px solid var(--line);
+    border-radius:14px;padding:18px 20px;margin:22px 0 12px}
+  h2{font-size:20px;font-weight:700;letter-spacing:-.3px;margin:34px 0 10px;
+    padding-top:16px;border-top:1px solid var(--line)}
+  p{color:var(--fog);margin:10px 0}
+  a{color:var(--signal);text-decoration:none}
+  a:hover{text-decoration:underline}
+  ul{margin:10px 0 10px 4px;list-style:none}
+  li{color:var(--fog);position:relative;padding-left:22px;margin:8px 0}
+  li::before{content:"";position:absolute;left:2px;top:11px;width:7px;height:7px;
+    border-radius:2px;background:var(--signal)}
+  strong{color:var(--mist)}
+  .footer{margin-top:44px;padding-top:20px;border-top:1px solid var(--line);
+    color:var(--steel);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="brand">
+    <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="m" x1="80" y1="80" x2="440" y2="470" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stop-color="#D4FF6E"/><stop offset=".6" stop-color="#7CEB1E"/><stop offset="1" stop-color="#2DE3FF"/>
+        </linearGradient>
+        <radialGradient id="g" cx="0.34" cy="0.28" r="0.5">
+          <stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <path d="M256,80 C356,80 432,150 432,244 C432,300 404,340 404,372 C404,404 380,432 352,432 C330,432 320,414 300,414 C280,414 276,452 256,452 C236,452 232,414 212,414 C192,414 182,432 160,432 C132,432 108,404 108,372 C108,340 80,300 80,244 C80,150 156,80 256,80 Z" fill="url(#m)"/>
+      <ellipse cx="196" cy="176" rx="104" ry="60" fill="url(#g)"/>
+      <circle cx="330" cy="250" r="22" fill="#0B0E10"/>
+    </svg>
+    <span class="name">Edge<span class="lm">LM</span></span>
+  </div>
+
+  <h1>Privacy Policy</h1>
+  <p class="meta">Effective date: 9 July 2026 · App: EdgeLM Runtime (<code>ai.edgelm.runtime</code>)</p>
+
+  <p class="lead">EdgeLM runs AI models <strong>on your device</strong>. It has no user accounts,
+  shows no ads, and does not collect, store, or transmit your personal data. Your prompts and the
+  AI's responses never leave your phone.</p>
+
+  <h2>What we collect</h2>
+  <p><strong>Nothing.</strong> EdgeLM does not collect, log, or transmit any personal or usage data.
+  There is no analytics SDK, no advertising SDK, no crash-reporting service, and no account system.</p>
+
+  <h2>How your content is handled</h2>
+  <ul>
+    <li><strong>Prompts and responses</strong> — Text you enter in the built-in Playground, and
+      prompts sent to the runtime by other apps on your device, are processed entirely in memory on
+      your device to generate a response. They are <strong>not written to disk, not stored, and not
+      sent anywhere</strong>. When a request finishes (or the model is unloaded), that working memory
+      is released.</li>
+    <li><strong>Conversation context</strong> — Multi-turn context is held only in volatile memory
+      for the duration of a session and is discarded when the session is cleared or the runtime stops.</li>
+  </ul>
+
+  <h2>Network use</h2>
+  <p>EdgeLM makes network requests for <strong>one purpose only</strong>: to download the AI model
+  <strong>you explicitly choose</strong> from the in-app catalog. These downloads are fetched over
+  HTTPS from third-party model hosts (for example, Hugging Face). Only a standard file request is
+  made — no personal data, prompts, or identifiers are sent by EdgeLM. The host you download from may
+  record standard request metadata (such as your IP address) under its own privacy policy; please
+  refer to that host's policy. If you never download a model, EdgeLM makes no network requests for
+  inference. EdgeLM performs <strong>no cloud inference</strong> — model execution is always local.</p>
+
+  <h2>Permissions</h2>
+  <ul>
+    <li><strong>Internet</strong> — to download the model file you select.</li>
+    <li><strong>Foreground service / data sync / special use</strong> — to keep the shared runtime and
+      an in-progress model download running reliably, with a visible notification, while in use.</li>
+    <li><strong>Post notifications</strong> — to show the runtime status and download progress.</li>
+  </ul>
+  <p>EdgeLM requests no access to your location, contacts, camera, microphone, photos, messages, or
+  files outside its own private app storage.</p>
+
+  <h2>Data sharing</h2>
+  <p>EdgeLM does not share any data with third parties, because it does not collect any.</p>
+
+  <h2>Children</h2>
+  <p>EdgeLM does not knowingly collect data from anyone, including children. It contains no ads and
+  no data collection.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>If this policy changes, the updated version will be posted at the same URL with a new effective
+  date.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy: <a href="mailto:chandramaulisharma26@gmail.com">chandramaulisharma26@gmail.com</a></p>
+
+  <div class="footer">© 2026 EdgeLM · On-device. Private. Offline. Shared by every app.</div>
+
+</div>
+</body>
+</html>
