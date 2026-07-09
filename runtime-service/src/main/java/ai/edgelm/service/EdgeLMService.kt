@@ -194,7 +194,7 @@ class EdgeLMService : Service() {
             .setContentTitle("EdgeLM Runtime")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-            .setSubText("On-device AI · 127.0.0.1:$HTTP_PORT")
+            .setSubText("On-device AI")
             .setContentIntent(open)
             .setOngoing(true)
             .setShowWhen(false)
@@ -390,3 +390,4 @@ class EdgeLMService : Service() {
         super.onDestroy()
     }
 }
+                        
