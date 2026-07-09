@@ -35,6 +35,12 @@ WORKS OFFLINE
 Once you've downloaded a model, EdgeLM runs with no internet connection at all. It's
 the same on a plane, in a tunnel, or on airplane mode.
 
+SIMPLE TO SET UP
+A quick welcome explains how it works, then EdgeLM suggests the right model for your
+phone — one tap to download and you're chatting in the built-in playground. Prefer
+control? Switch to Advanced any time for the full catalog with sizes, context lengths
+and licenses.
+
 CHOOSE YOUR MODEL
 Pick from a curated catalog spanning tiny-and-fast to more capable:
 • Qwen2.5 0.5B — runs on almost any phone
@@ -86,11 +92,3 @@ private AI that lives on your device.
 - **Email:** chandramaulisharma26@gmail.com
 - **Privacy policy URL:** *(host `PRIVACY.md` and paste the URL — see hosting note in
   README-PLAY.md)*
-- **Website:** optional
-
-## Notes
-
-- App title on Play is limited to 30 characters — the primary name above fits.
-- Provide the 512×512 app icon (already in `docs/assets-genz/android/
-  ic_launcher-playstore.png`) and the 1024×500 feature graphic
-  (`feature-graphic-1024x500.png`).
