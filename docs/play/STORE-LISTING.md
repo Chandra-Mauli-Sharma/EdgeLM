@@ -92,3 +92,11 @@ private AI that lives on your device.
 - **Email:** chandramaulisharma26@gmail.com
 - **Privacy policy URL:** *(host `PRIVACY.md` and paste the URL — see hosting note in
   README-PLAY.md)*
+- **Website:** optional
+
+## Notes
+
+- App title on Play is limited to 30 characters — the primary name above fits.
+- Provide the 512×512 app icon (already in `docs/assets-genz/android/
+  ic_launcher-playstore.png`) and the 1024×500 feature graphic
+  (`feature-graphic-1024x500.png`).

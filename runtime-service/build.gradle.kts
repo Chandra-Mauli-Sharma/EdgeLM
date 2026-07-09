@@ -52,4 +52,43 @@ android {
         if (hasReleaseSigning) {
             create("release") {
                 storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
-                storePassword = keystoreProps.getProperty("s
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true          // R8 shrink + obfuscate
+            isShrinkResources = true        // drop unused resources
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
+        }
+        // NOTE: debug keeps the same applicationId (ai.edgelm.runtime) on purpose —
+        // the SDK/demo apps bind that exact package, so don't suffix it.
+    }
+
+    buildFeatures {
+        aidl = true
+        buildConfig = true   // BuildConfig.DEBUG gates the localhost HTTP shim
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
+}
+
+dependencies {
+    implementation(project(":contract"))
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.nanohttpd:nanohttpd:2.3.1")   // OpenAI-compatible HTTP shim
+    implementation("androidx.activity:activity-ktx:1.9.0")   // landing/status screen
+    implementation("androidx.core:core-splashscreen:1.0.1")  // branded splash screen
+}

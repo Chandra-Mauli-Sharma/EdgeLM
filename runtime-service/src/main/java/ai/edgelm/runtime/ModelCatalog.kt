@@ -119,4 +119,55 @@ object ModelCatalog {
     }
 }
 
-/
+/** First-run + interface preferences. */
+object Prefs {
+    private const val FILE = "edgelm_prefs"
+    private fun sp(ctx: Context) = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+    fun isOnboarded(ctx: Context) = sp(ctx).getBoolean("onboarded", false)
+    fun setOnboarded(ctx: Context) = sp(ctx).edit().putBoolean("onboarded", true).apply()
+    fun isSimpleMode(ctx: Context) = sp(ctx).getBoolean("simple_mode", true)
+    fun setSimpleMode(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("simple_mode", v).apply()
+}
+
+/**
+ * Multi-model on-disk storage. Downloaded models live at files/models/<id>.gguf;
+ * files/active_model holds the id the engine should load. Both the app process
+ * (picker UI) and the :core service process share filesDir (same app UID), so the
+ * service just re-reads the pointer on reloadModel().
+ */
+object ModelStore {
+    private fun modelsDir(ctx: Context) = File(ctx.filesDir, "models").apply { mkdirs() }
+    private fun pointer(ctx: Context) = File(ctx.filesDir, "active_model")
+
+    fun fileFor(ctx: Context, id: String) = File(modelsDir(ctx), "$id.gguf")
+    fun isInstalled(ctx: Context, id: String) = fileFor(ctx, id).exists()
+
+    fun installedIds(ctx: Context): Set<String> =
+        modelsDir(ctx).listFiles()?.filter { it.extension == "gguf" }
+            ?.map { it.nameWithoutExtension }?.toSet() ?: emptySet()
+
+    fun activeId(ctx: Context): String? =
+        pointer(ctx).takeIf { it.exists() }?.readText()?.trim()?.ifBlank { null }
+
+    fun setActive(ctx: Context, id: String) = pointer(ctx).writeText(id)
+    fun clearActive(ctx: Context) { pointer(ctx).delete() }
+
+    /**
+     * Absolute path the engine should load, or "" if nothing is installed. Falls
+     * back to the legacy single-slot files/model.gguf from before the catalog.
+     */
+    fun activePath(ctx: Context): String {
+        activeId(ctx)?.let { id ->
+            val f = fileFor(ctx, id)
+            if (f.exists()) return f.absolutePath
+        }
+        val legacy = File(ctx.filesDir, "model.gguf")
+        return if (legacy.exists()) legacy.absolutePath else ""
+    }
+
+    /** Remove an installed model; if it was active, clear the pointer. */
+    fun remove(ctx: Context, id: String) {
+        fileFor(ctx, id).delete()
+        if (activeId(ctx) == id) clearActive(ctx)
+    }
+}

@@ -20,4 +20,30 @@
                 <gradient
                     android:type="linear"
                     android:startX="80" android:startY="80"
-                    android:endX="440" android:endY="470
+                    android:endX="440" android:endY="470">
+                    <item android:offset="0" android:color="#FFD4FF6E" />
+                    <item android:offset="0.6" android:color="#FF7CEB1E" />
+                    <item android:offset="1" android:color="#FF2DE3FF" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <!-- gloss highlight (soft white) -->
+        <path android:pathData="M92,176 a104,60 0 1,0 208,0 a104,60 0 1,0 -208,0 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="radial"
+                    android:centerX="165" android:centerY="150"
+                    android:gradientRadius="120">
+                    <item android:offset="0" android:color="#80FFFFFF" />
+                    <item android:offset="1" android:color="#00FFFFFF" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <!-- single eye -->
+        <path
+            android:fillColor="#0B0E10"
+            android:pathData="M308,250 a22,22 0 1,0 44,0 a22,22 0 1,0 -44,0 Z" />
+    </group>
+</vector>

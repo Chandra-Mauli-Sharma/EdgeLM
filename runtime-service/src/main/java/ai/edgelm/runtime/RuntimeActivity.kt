@@ -444,4 +444,113 @@ class RuntimeActivity : ComponentActivity() {
             row.progressText.text = when {
                 err == null -> "Installed & active ✓"
                 err == "cancelled" -> "Download cancelled"
-                else -> "Download failed: 
+                else -> "Download failed: $err"
+            }
+            refresh()
+        }
+    }
+
+    // ---- Lifecycle ------------------------------------------------------------
+
+    override fun onStart() {
+        super.onStart()
+        // First run: show the welcome once.
+        if (!Prefs.isOnboarded(this) && !onboardingLaunched) {
+            onboardingLaunched = true
+            startActivity(Intent(this, OnboardingActivity::class.java))
+        }
+        // Observe download progress while visible; reconcile anything already running.
+        Downloads.listener = { id -> runOnUiThread { onDownloadUpdate(id) } }
+        val i = Intent().setComponent(ComponentName(packageName, "ai.edgelm.service.EdgeLMService"))
+        runCatching { startForegroundService(i) }
+        runCatching { bindService(i, conn, Context.BIND_AUTO_CREATE) }
+        Downloads.activeId?.let { onDownloadUpdate(it) }
+        refresh()
+    }
+    override fun onStop() {
+        super.onStop()
+        Downloads.listener = null
+        runCatching { unbindService(conn) }
+    }
+
+    private fun askNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1408)
+        }
+    }
+
+    // ---- Small view helpers ---------------------------------------------------
+
+    private fun label(s: String, size: Float, color: Int, bold: Boolean) = TextView(this).apply {
+        text = s; textSize = size; setTextColor(color); if (bold) setTypeface(typeface, Typeface.BOLD)
+    }
+    private fun centered(v: TextView) = v.apply {
+        gravity = Gravity.CENTER_HORIZONTAL
+        layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+    }
+
+    private fun pill(text: String) = TextView(this).apply {
+        this.text = text; textSize = 11.5f; setTextColor(green)
+        setPadding(dp(10), dp(4), dp(10), dp(4))
+        background = GradientDrawable().apply {
+            cornerRadius = dp(999).toFloat(); setColor(Color.parseColor("#182013"))
+            setStroke(dp(1), Color.parseColor("#2E3941"))
+        }
+        typeface = Typeface.MONOSPACE
+    }
+
+    private fun cardBg() = GradientDrawable().apply {
+        cornerRadius = dp(16).toFloat(); setColor(carbon); setStroke(dp(1), Color.parseColor("#242D33"))
+    }
+    // Highlighted card for the recommended model — subtle green tint + border.
+    private fun recommendedCardBg() = GradientDrawable().apply {
+        cornerRadius = dp(16).toFloat(); setColor(Color.parseColor("#141B10")); setStroke(dp(1), Color.parseColor("#3A5A22"))
+    }
+
+    // Filled green pill (primary).
+    private fun pillBg(): StateListDrawable {
+        fun d(c: String) = GradientDrawable().apply { cornerRadius = dp(13).toFloat(); setColor(Color.parseColor(c)) }
+        return StateListDrawable().apply {
+            addState(intArrayOf(-android.R.attr.state_enabled), d("#5A7A2E"))
+            addState(intArrayOf(android.R.attr.state_pressed), d("#7CEB1E"))
+            addState(intArrayOf(), d("#9BFF3C"))
+        }
+    }
+    // Green outline (secondary, active-switch).
+    private fun ghostGreenBg(): StateListDrawable {
+        fun d(fill: Int) = GradientDrawable().apply {
+            cornerRadius = dp(13).toFloat(); setColor(fill); setStroke(dp(1), green)
+        }
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), d(Color.parseColor("#182013")))
+            addState(intArrayOf(), d(Color.TRANSPARENT))
+        }
+    }
+    // Neutral outline (Remove).
+    private fun ghostBg(): StateListDrawable {
+        fun d(fill: Int) = GradientDrawable().apply {
+            cornerRadius = dp(13).toFloat(); setColor(fill); setStroke(dp(1), Color.parseColor("#2E3941"))
+        }
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), d(Color.parseColor("#1A2024")))
+            addState(intArrayOf(), d(Color.TRANSPARENT))
+        }
+    }
+    private fun greenProgress(): android.graphics.drawable.Drawable {
+        val r = dp(6).toFloat()
+        val track = GradientDrawable().apply { cornerRadius = r; setColor(Color.parseColor("#1E262B")) }
+        val fill = GradientDrawable().apply { cornerRadius = r; setColor(green) }
+        return android.graphics.drawable.LayerDrawable(arrayOf(
+            track,
+            android.graphics.drawable.ClipDrawable(fill, Gravity.START, android.graphics.drawable.ClipDrawable.HORIZONTAL)
+        )).apply { setId(0, android.R.id.background); setId(1, android.R.id.progress) }
+    }
+
+    private fun fmtMb(mb: Int) = if (mb >= 1024) "%.1f GB".format(mb / 1024.0) else "$mb MB"
+    private fun gb(bytes: Long) = "%.0f".format(bytes / 1.0e9).let { it }
+    private fun gbFromMb(mb: Int) = "%.1f".format(mb / 1024.0)
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+}

@@ -16,3 +16,8 @@ keystore.properties
 
 # Raw device screenshots (source for the marketing shots; may contain personal info)
 docs/play/screenshots/Screenshot_*.png
+
+# Build/run logs and scratch APK output (not source)
+log.txt
+*.log
+tmp_apk/
