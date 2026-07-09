@@ -24,8 +24,12 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
-import android.view.animation.AnticipateInterpolator
+import android.os.SystemClock
+import android.view.animation.AccelerateInterpolator
 import androidx.activity.ComponentActivity
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import ai.edgelm.contract.IEdgeLMService
@@ -51,7 +55,6 @@ class RuntimeActivity : ComponentActivity() {
 
     private var service: IEdgeLMService? = null
     private var lastFinishedId: String? = null   // show a one-shot result line on this card
-    @Volatile private var firstFrameReady = false  // releases the splash once UI is built
 
     private var simpleMode = true                // plain, recommended-first view (default)
     private var showAllSimple = false            // "Show all models" expander in simple mode
@@ -82,23 +85,28 @@ class RuntimeActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Branded splash: hold briefly until the runtime binds, then animate the
-        // ghost out with a slide-up + fade for a polished handoff into the app.
+        // Branded splash: keep the ghost on screen for a clear, visible beat, then
+        // animate it out (rise + gentle zoom + fade) so the handoff reads smoothly
+        // instead of flashing past.
+        val splashStart = SystemClock.uptimeMillis()
         val splash = installSplashScreen()
-        splash.setKeepOnScreenCondition { !firstFrameReady }
+        splash.setKeepOnScreenCondition { SystemClock.uptimeMillis() - splashStart < 850L }
         splash.setOnExitAnimationListener { provider ->
             val icon = provider.iconView
-            val slide = ObjectAnimator.ofFloat(icon, View.TRANSLATION_Y, 0f, -icon.height.toFloat() * 0.5f)
-            val fade = ObjectAnimator.ofFloat(icon, View.ALPHA, 1f, 0f)
-            val zoom = ObjectAnimator.ofFloat(icon, View.SCALE_X, 1f, 0.7f)
-            val zoomY = ObjectAnimator.ofFloat(icon, View.SCALE_Y, 1f, 0.7f)
-            listOf(slide, fade, zoom, zoomY).forEach {
-                it.interpolator = AnticipateInterpolator(); it.duration = 320L
+            val set = AnimatorSet().apply {
+                playTogether(
+                    ObjectAnimator.ofFloat(icon, View.ALPHA, 1f, 0f),
+                    ObjectAnimator.ofFloat(icon, View.TRANSLATION_Y, 0f, -icon.height * 0.35f),
+                    ObjectAnimator.ofFloat(icon, View.SCALE_X, 1f, 0.72f),
+                    ObjectAnimator.ofFloat(icon, View.SCALE_Y, 1f, 0.72f),
+                )
+                duration = 480L
+                interpolator = AccelerateInterpolator(1.3f)
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) = provider.remove()
+                })
             }
-            slide.addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) = provider.remove()
-            })
-            slide.start(); fade.start(); zoom.start(); zoomY.start()
+            set.start()
         }
 
         super.onCreate(savedInstanceState)
@@ -173,8 +181,6 @@ class RuntimeActivity : ComponentActivity() {
         setContentView(ScrollView(this).apply { setBackgroundColor(bg); addView(root) })
         simpleMode = Prefs.isSimpleMode(this)
         applyMode()
-        // Let the splash dismiss after the first frame is laid out.
-        window.decorView.post { firstFrameReady = true }
         askNotificationPermission()
     }
 
@@ -438,5 +444,4 @@ class RuntimeActivity : ComponentActivity() {
             row.progressText.text = when {
                 err == null -> "Installed & active ✓"
                 err == "cancelled" -> "Download cancelled"
-                else -> "Download failed: $err"
-           
+                else -> "Download failed: 
