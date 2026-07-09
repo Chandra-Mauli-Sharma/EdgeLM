@@ -24,6 +24,20 @@
   body{background:var(--obsidian);color:var(--mist);font-family:var(--sans);line-height:1.65;
     -webkit-font-smoothing:antialiased;overflow-x:hidden}
   a{color:inherit;text-decoration:none}
+  /* Brand-matched scrollbar (dark track, subtle thumb) */
+  html{scrollbar-width:thin;scrollbar-color:var(--line2) var(--obsidian)}
+  ::-webkit-scrollbar{width:12px;height:12px}
+  ::-webkit-scrollbar-track{background:var(--obsidian)}
+  ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:10px;border:3px solid var(--obsidian)}
+  ::-webkit-scrollbar-thumb:hover{background:var(--steel)}
+  /* scroll-reveal */
+  .reveal{opacity:0;transform:translateY(22px);transition:opacity .6s ease,transform .6s ease}
+  .reveal.in{opacity:1;transform:none}
+  @media(prefers-reduced-motion:reduce){
+    .reveal{opacity:1;transform:none;transition:none}
+    .mtrack{animation:none}
+    .heroart .bigghost{animation:none}
+  }
   .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
   .grad{background:linear-gradient(120deg,var(--signal),var(--volt));
     -webkit-background-clip:text;background-clip:text;color:transparent}
@@ -35,8 +49,8 @@
   .logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:19px;letter-spacing:-.5px}
   .logo svg{width:30px;height:30px}
   nav .links{margin-left:auto;display:flex;align-items:center;gap:26px}
-  nav .links a{color:var(--fog);font-size:14.5px}
-  nav .links a:hover{color:var(--mist)}
+  nav .links a:not(.btn){color:var(--fog);font-size:14.5px}
+  nav .links a:not(.btn):hover{color:var(--mist)}
   .btn{display:inline-flex;align-items:center;gap:8px;border-radius:12px;font-family:var(--mono);
     font-weight:600;font-size:14px;padding:12px 20px;cursor:pointer;transition:.15s;white-space:nowrap}
   .btn-p{background:var(--signal);color:var(--obsidian)}
@@ -57,13 +71,22 @@
   .hero p.sub{color:var(--fog);font-size:19px;margin:20px 0 30px;max-width:540px}
   .hero .cta{display:flex;gap:14px;flex-wrap:wrap}
   .hero .note{color:var(--steel);font-size:13px;margin-top:16px}
-  .heroart{position:relative;display:flex;justify-content:center}
-  .heroart img{width:78%;max-width:320px;border-radius:26px;border:1px solid var(--line2);
-    box-shadow:0 40px 90px rgba(0,0,0,.6)}
-  .heroghost{position:absolute;width:150px;height:150px;top:-40px;right:6%;
-    filter:drop-shadow(0 20px 40px rgba(0,0,0,.5))}
-  @media(max-width:860px){.hero{grid-template-columns:1fr;gap:36px}.heroart{order:-1}
-    .heroghost{width:110px;height:110px;top:-24px}}
+  .heroart{position:relative;display:flex;justify-content:center;align-items:center;min-height:340px}
+  .heroart::before{content:"";position:absolute;width:440px;height:440px;border-radius:50%;
+    background:radial-gradient(circle,rgba(155,255,60,.16),transparent 62%)}
+  .heroart .bigghost{position:relative;z-index:1;width:min(82%,320px);height:auto;
+    filter:drop-shadow(0 34px 70px rgba(0,0,0,.6));animation:bob 4.6s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-16px) rotate(-1.5deg)}}
+  @media(max-width:860px){.hero{grid-template-columns:1fr;gap:24px}.heroart{order:-1;min-height:200px}
+    .heroart .bigghost{width:170px}}
+
+  /* stats strip */
+  .stats{display:flex;gap:16px;flex-wrap:wrap;margin-top:44px}
+  .stat{flex:1;min-width:150px;text-align:center;background:var(--card);border:1px solid var(--line);
+    border-radius:16px;padding:22px 18px}
+  .stat b{display:block;font-family:var(--mono);font-size:clamp(30px,4vw,40px);font-weight:700;
+    color:var(--signal);letter-spacing:-1px;line-height:1}
+  .stat span{display:block;color:var(--fog);font-size:13.5px;margin-top:8px}
 
   section{padding:76px 0;border-top:1px solid var(--line)}
   .kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--volt);margin-bottom:12px}
@@ -91,9 +114,15 @@
   .step p{color:var(--fog);font-size:14.5px}
 
   /* screenshots */
-  .shots{display:flex;gap:18px;overflow-x:auto;padding:6px 2px 18px;scroll-snap-type:x mandatory}
-  .shots img{height:520px;border-radius:22px;border:1px solid var(--line2);scroll-snap-align:center;flex:0 0 auto}
-  @media(max-width:520px){.shots img{height:430px}}
+  /* auto-scrolling screenshot marquee (pauses on hover) */
+  .marquee{overflow:hidden;padding:6px 0 20px;
+    -webkit-mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent);
+    mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
+  .mtrack{display:flex;gap:18px;width:max-content;animation:marq 46s linear infinite}
+  .marquee:hover .mtrack{animation-play-state:paused}
+  .mtrack img{height:520px;border-radius:22px;border:1px solid var(--line2);flex:0 0 auto;display:block}
+  @keyframes marq{to{transform:translateX(-50%)}}
+  @media(max-width:520px){.mtrack img{height:420px}}
 
   /* models */
   .models{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
@@ -145,7 +174,7 @@
         <path d="M256,80 C356,80 432,150 432,244 C432,300 404,340 404,372 C404,404 380,432 352,432 C330,432 320,414 300,414 C280,414 276,452 256,452 C236,452 232,414 212,414 C192,414 182,432 160,432 C132,432 108,404 108,372 C108,340 80,300 80,244 C80,150 156,80 256,80 Z" fill="url(#matcha)"/>
         <ellipse cx="196" cy="176" rx="104" ry="60" fill="url(#gloss)"/><circle cx="330" cy="250" r="22" fill="#0B0E10"/>
       </svg>
-      Edge<span class="grad">LM</span>
+      <span>Edge<span class="grad">LM</span></span>
     </a>
     <div class="links">
       <a href="#features">Features</a>
@@ -171,11 +200,17 @@
       <p class="note">No cloud · no account · no tracking · works offline</p>
     </div>
     <div class="heroart">
-      <svg class="heroghost" viewBox="0 0 512 512">
+      <svg class="bigghost" viewBox="0 0 512 512">
         <path d="M256,80 C356,80 432,150 432,244 C432,300 404,340 404,372 C404,404 380,432 352,432 C330,432 320,414 300,414 C280,414 276,452 256,452 C236,452 232,414 212,414 C192,414 182,432 160,432 C132,432 108,404 108,372 C108,340 80,300 80,244 C80,150 156,80 256,80 Z" fill="url(#matcha)"/>
         <ellipse cx="196" cy="176" rx="104" ry="60" fill="url(#gloss)"/><circle cx="330" cy="250" r="22" fill="#0B0E10"/>
       </svg>
-      <img src="docs/play/screenshots/marketing/01_recommended.png" alt="EdgeLM — pick the right AI for your phone">
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat"><b data-count="23" data-suffix=" tok/s">0</b><span>on-device decode speed</span></div>
+      <div class="stat"><b data-count="5">0</b><span>models to choose from</span></div>
+      <div class="stat"><b data-count="100" data-suffix="%">0</b><span>private &amp; offline</span></div>
     </div>
   </div>
 </header>
@@ -215,13 +250,19 @@
     <p class="lead">Plain-language by default — download the recommended model and chat. Full model
     details and controls are one tap away in Advanced.</p>
   </div>
-  <div class="wrap">
-    <div class="shots">
+  <div class="marquee">
+    <div class="mtrack">
       <img src="docs/play/screenshots/marketing/01_recommended.png" alt="The right AI for your phone">
       <img src="docs/play/screenshots/marketing/02_playground.png" alt="Chat privately, on your device">
       <img src="docs/play/screenshots/marketing/03_models.png" alt="Choose your assistant">
       <img src="docs/play/screenshots/marketing/04_offline.png" alt="Fast, and fully offline">
       <img src="docs/play/screenshots/marketing/05_advanced.png" alt="Full control when you want it">
+      <!-- duplicate set for a seamless loop -->
+      <img src="docs/play/screenshots/marketing/01_recommended.png" alt="" aria-hidden="true">
+      <img src="docs/play/screenshots/marketing/02_playground.png" alt="" aria-hidden="true">
+      <img src="docs/play/screenshots/marketing/03_models.png" alt="" aria-hidden="true">
+      <img src="docs/play/screenshots/marketing/04_offline.png" alt="" aria-hidden="true">
+      <img src="docs/play/screenshots/marketing/05_advanced.png" alt="" aria-hidden="true">
     </div>
   </div>
 </section>
@@ -295,6 +336,59 @@ EdgeLM.<span class="fn">promptInstall</span>(context)</code></pre>
     </span>
   </div>
 </footer>
+
+<script>
+  (function () {
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // Count-up stats (set final immediately if motion is reduced).
+    var counters = document.querySelectorAll('.stat b[data-count]');
+    function finalVal(el){ return el.getAttribute('data-count') + (el.getAttribute('data-suffix') || ''); }
+    function runCount(el){
+      var target = +el.getAttribute('data-count'), suffix = el.getAttribute('data-suffix') || '';
+      var dur = 1200, t0 = null;
+      function ease(x){ return 1 - Math.pow(1 - x, 3); }
+      function tick(ts){
+        if (!t0) t0 = ts;
+        var p = Math.min((ts - t0) / dur, 1);
+        el.textContent = Math.round(target * ease(p)) + suffix;
+        if (p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+    if (reduce || !('IntersectionObserver' in window)) {
+      counters.forEach(function (el) { el.textContent = finalVal(el); });
+    } else {
+      var cio = new IntersectionObserver(function (ents) {
+        ents.forEach(function (e) { if (e.isIntersecting) { cio.unobserve(e.target); runCount(e.target); } });
+      }, { threshold: 0.5 });
+      counters.forEach(function (el) { cio.observe(el); });
+    }
+
+    // Fade sections/cards in as they scroll into view.
+    if (reduce) return;
+    var els = document.querySelectorAll(
+      'section .wrap, .feat, .step, .model, .dev pre, .dev ul, .band'
+    );
+    els.forEach(function (el) { el.classList.add('reveal'); });
+    if (!('IntersectionObserver' in window)) {
+      els.forEach(function (el) { el.classList.add('in'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+    // small stagger within a row for a nicer cascade
+    document.querySelectorAll('.grid4, .steps, .models').forEach(function (row) {
+      Array.prototype.forEach.call(row.children, function (child, i) {
+        child.style.transitionDelay = (i * 60) + 'ms';
+      });
+    });
+    els.forEach(function (el) { io.observe(el); });
+  })();
+</script>
 
 </body>
 </html>
