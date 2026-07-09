@@ -8,6 +8,16 @@ app bundling and running its own.
 Think of it as a system service for on-device intelligence: one place that holds the
 model, so your apps get AI without sending your data to the cloud.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/play/screenshots/marketing/01_recommended.png" width="180" alt="The right AI for your phone" />
+  <img src="docs/play/screenshots/marketing/02_playground.png" width="180" alt="Chat privately, on your device" />
+  <img src="docs/play/screenshots/marketing/03_models.png" width="180" alt="Choose your assistant" />
+  <img src="docs/play/screenshots/marketing/04_offline.png" width="180" alt="Fast, and fully offline" />
+  <img src="docs/play/screenshots/marketing/05_advanced.png" width="180" alt="Full control when you want it" />
+</p>
+
 ## Why EdgeLM
 
 - **Private by design.** Your prompts and the AI's responses never leave your device.
