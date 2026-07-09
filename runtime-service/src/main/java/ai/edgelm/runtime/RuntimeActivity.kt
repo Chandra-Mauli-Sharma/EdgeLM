@@ -31,7 +31,11 @@ import android.animation.ObjectAnimator
 import android.os.SystemClock
 import android.view.animation.AccelerateInterpolator
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import ai.edgelm.contract.IEdgeLMService
 
 /**
@@ -110,7 +114,12 @@ class RuntimeActivity : ComponentActivity() {
         }
 
         super.onCreate(savedInstanceState)
-        window.statusBarColor = bg; window.navigationBarColor = bg
+        // API 35 is edge-to-edge by default; use light bar icons (dark UI) and
+        // transparent bars, then pad content by the system-bar insets below.
+        enableEdgeToEdge(
+            SystemBarStyle.dark(Color.TRANSPARENT),
+            SystemBarStyle.dark(Color.TRANSPARENT),
+        )
         deviceRamMb = runCatching {
             val mi = ActivityManager.MemoryInfo()
             getSystemService(ActivityManager::class.java).getMemoryInfo(mi)
@@ -179,6 +188,11 @@ class RuntimeActivity : ComponentActivity() {
             .apply { setPadding(dp(2), dp(24), 0, 0) })
 
         setContentView(ScrollView(this).apply { setBackgroundColor(bg); addView(root) })
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val b = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(dp(24) + b.left, dp(16) + b.top, dp(24) + b.right, dp(24) + b.bottom)
+            insets
+        }
         simpleMode = Prefs.isSimpleMode(this)
         applyMode()
         askNotificationPermission()
