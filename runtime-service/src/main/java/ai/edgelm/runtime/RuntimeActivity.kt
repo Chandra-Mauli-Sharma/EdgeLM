@@ -53,8 +53,16 @@ class RuntimeActivity : ComponentActivity() {
     private var lastFinishedId: String? = null   // show a one-shot result line on this card
     @Volatile private var firstFrameReady = false  // releases the splash once UI is built
 
+    private var simpleMode = true                // plain, recommended-first view (default)
+    private var showAllSimple = false            // "Show all models" expander in simple mode
+    private var onboardingLaunched = false
+
     private lateinit var statusView: TextView
-    private lateinit var listContainer: LinearLayout
+    private lateinit var listContainer: LinearLayout   // holds the whole models section
+    private lateinit var ramLine: TextView
+    private lateinit var playgroundBtn: Button
+    private lateinit var modeToggle: TextView
+    private lateinit var modelsHeading: TextView
     private var deviceRamMb: Int = 0
 
     /** Per-model card widgets we mutate on state changes. */
@@ -113,86 +121,152 @@ class RuntimeActivity : ComponentActivity() {
                 gravity = Gravity.CENTER_HORIZONTAL
             }
         })
-        root.addView(centered(label("EdgeLM Runtime", 26f, mist, true)).apply { setPadding(0, dp(16), 0, 0) })
-        root.addView(centered(label("The Android AI Runtime", 14.5f, green, false)).apply { setPadding(0, dp(3), 0, 0) })
+        root.addView(centered(label("EdgeLM", 26f, mist, true)).apply { setPadding(0, dp(16), 0, 0) })
+        root.addView(centered(label("AI that runs on your phone", 14.5f, green, false)).apply { setPadding(0, dp(3), 0, 0) })
 
-        statusView = label("Checking runtime…", 15f, mist, true).apply {
-            setPadding(0, dp(22), 0, dp(2)); gravity = Gravity.CENTER_HORIZONTAL
+        statusView = label("Checking…", 15f, mist, true).apply {
+            setPadding(0, dp(20), 0, dp(2)); gravity = Gravity.CENTER_HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
         }
         root.addView(statusView)
-        root.addView(centered(label(
-            if (deviceRamMb > 0) "This device: ${gb(deviceRamMb.toLong() * 1024 * 1024)} GB RAM" else "",
-            12f, steel, false)))
+        ramLine = centered(label("", 12f, steel, false))
+        root.addView(ramLine)
 
         // Playground launcher — quick way to verify the runtime + model answer.
-        root.addView(Button(this).apply {
-            text = "▶  Open Playground — test the runtime"
+        playgroundBtn = Button(this).apply {
             isAllCaps = false; setTypeface(typeface, Typeface.BOLD); textSize = 14.5f
             setTextColor(green); background = ghostGreenBg(); stateListAnimator = null
             setPadding(dp(18), dp(13), dp(18), dp(13))
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(18) }
-            setOnClickListener {
-                startActivity(Intent(this@RuntimeActivity, PlaygroundActivity::class.java))
-            }
-        })
+            setOnClickListener { startActivity(Intent(this@RuntimeActivity, PlaygroundActivity::class.java)) }
+        }
+        root.addView(playgroundBtn)
 
-        root.addView(label("Choose a model", 17f, mist, true).apply { setPadding(dp(2), dp(28), 0, dp(2)) })
-        root.addView(label(
-            "Download one or more models. Switch the active model any time — installed " +
-            "models switch instantly without re-downloading. Apps share whichever is active.",
-            13.5f, fog, false).apply { setPadding(dp(2), 0, 0, dp(8)) })
+        // Section heading row: title + Simple/Advanced toggle.
+        val headingRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(26) }
+        }
+        modelsHeading = label("Models", 17f, mist, true).apply {
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+        }
+        headingRow.addView(modelsHeading)
+        modeToggle = label("", 13f, green, false).apply {
+            setPadding(dp(10), dp(6), dp(6), dp(6))
+            setOnClickListener {
+                simpleMode = !simpleMode
+                Prefs.setSimpleMode(this@RuntimeActivity, simpleMode)
+                showAllSimple = false
+                applyMode()
+            }
+        }
+        headingRow.addView(modeToggle)
+        root.addView(headingRow)
 
         listContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(listContainer)
-        ModelCatalog.models.forEach { listContainer.addView(modelCard(it)) }
 
         val ver = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrDefault("?")
-        root.addView(label("v$ver  ·  ai.edgelm.runtime  ·  private, on-device", 11.5f, steel, false)
+        root.addView(label("v$ver  ·  private, on-device", 11.5f, steel, false)
             .apply { setPadding(dp(2), dp(24), 0, 0) })
 
         setContentView(ScrollView(this).apply { setBackgroundColor(bg); addView(root) })
+        simpleMode = Prefs.isSimpleMode(this)
+        applyMode()
         // Let the splash dismiss after the first frame is laid out.
         window.decorView.post { firstFrameReady = true }
         askNotificationPermission()
     }
 
+    /** Applies Simple vs Advanced chrome and rebuilds the model list. */
+    private fun applyMode() {
+        modeToggle.text = if (simpleMode) "Advanced ›" else "‹ Simple"
+        modelsHeading.text = if (simpleMode) "Choose your AI" else "Models"
+        playgroundBtn.text = if (simpleMode) "▶  Try it — chat with the AI"
+                             else "▶  Open Playground — test the runtime"
+        ramLine.visibility = if (!simpleMode && deviceRamMb > 0) View.VISIBLE else View.GONE
+        if (deviceRamMb > 0) ramLine.text = "This device: ${gb(deviceRamMb.toLong() * 1024 * 1024)} GB RAM"
+        renderModels()
+        refresh()
+    }
+
+    /** Rebuilds the models section for the current mode. */
+    private fun renderModels() {
+        listContainer.removeAllViews()
+        rows.clear()
+        if (simpleMode) {
+            val recommended = ModelCatalog.recommendedFor(deviceRamMb)
+            val ctx = this
+            val shown = buildList {
+                add(recommended)
+                if (showAllSimple) {
+                    ModelCatalog.models.forEach { if (it.id != recommended.id) add(it) }
+                } else {
+                    // keep any already-installed models visible so they can switch
+                    ModelCatalog.models.forEach {
+                        if (it.id != recommended.id && ModelStore.isInstalled(ctx, it.id)) add(it)
+                    }
+                }
+            }
+            shown.forEach { listContainer.addView(modelCard(it, simple = true, recommended = it.id == recommended.id)) }
+            if (!showAllSimple) {
+                listContainer.addView(label("Show more options  ▾", 13.5f, green, false).apply {
+                    setPadding(dp(4), dp(16), dp(4), dp(8)); gravity = Gravity.CENTER_HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+                    setOnClickListener { showAllSimple = true; renderModels(); refresh() }
+                })
+            }
+        } else {
+            ModelCatalog.models.forEach { listContainer.addView(modelCard(it, simple = false, recommended = false)) }
+        }
+    }
+
     // ---- One model card -------------------------------------------------------
 
-    private fun modelCard(spec: ModelSpec): View {
+    private fun modelCard(spec: ModelSpec, simple: Boolean, recommended: Boolean): View {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = cardBg()
+            background = if (recommended) recommendedCardBg() else cardBg()
             setPadding(dp(18), dp(16), dp(18), dp(16))
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
                 .apply { topMargin = dp(12) }
         }
 
-        // Title row: name + params pill
-        val titleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        titleRow.addView(label(spec.name, 16.5f, mist, true).apply {
-            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
-        })
-        titleRow.addView(pill("${spec.params} · ${spec.quant}"))
-        card.addView(titleRow)
-
-        // Meta line
-        card.addView(label(
-            "${fmtMb(spec.sizeMb)}  ·  ${spec.ctx} context  ·  ${spec.license}  ·  needs ~${gbFromMb(spec.minRamMb)} GB RAM",
-            12f, steel, false).apply { setPadding(0, dp(7), 0, 0) })
-
-        // RAM warning if the device likely can't run it
-        if (deviceRamMb in 1 until spec.minRamMb) {
-            card.addView(label("⚠ May exceed this device's RAM — could fail to load.", 12f, amber, false)
-                .apply { setPadding(0, dp(5), 0, 0) })
+        if (recommended) {
+            card.addView(label("★  RECOMMENDED FOR YOUR PHONE", 11f, green, true)
+                .apply { setPadding(0, 0, 0, dp(8)); letterSpacing = 0.04f })
         }
 
-        // Blurb
-        card.addView(label(spec.blurb, 13f, fog, false).apply { setPadding(0, dp(8), 0, dp(2)) })
+        // Title row: friendly name in simple; real name + params pill in advanced.
+        val titleRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        titleRow.addView(label(if (simple) spec.simpleName else spec.name, 16.5f, mist, true).apply {
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+        })
+        if (!simple) titleRow.addView(pill("${spec.params} · ${spec.quant}"))
+        card.addView(titleRow)
 
-        // Recommended use case
-        card.addView(label("Best for: ${spec.useCase}", 12.5f, Color.parseColor("#9DBE7A"), false)
-            .apply { setPadding(0, dp(6), 0, dp(2)); setTypeface(typeface, Typeface.ITALIC) })
+        if (simple) {
+            // Plain language only: friendly speed word + download size, then a
+            // jargon-free one-liner. No model names, params, context, or RAM figures.
+            card.addView(label("${ModelCatalog.hintFor(spec)}  ·  ${fmtMb(spec.sizeMb)} to download",
+                12.5f, steel, false).apply { setPadding(0, dp(7), 0, 0) })
+            if (deviceRamMb in 1 until spec.minRamMb) {
+                card.addView(label("⚠ May be too big for this phone.", 12f, amber, false)
+                    .apply { setPadding(0, dp(5), 0, 0) })
+            }
+            card.addView(label(spec.simpleTagline, 13f, fog, false).apply { setPadding(0, dp(8), 0, dp(2)) })
+        } else {
+            card.addView(label(
+                "${fmtMb(spec.sizeMb)}  ·  ${spec.ctx} context  ·  ${spec.license}  ·  needs ~${gbFromMb(spec.minRamMb)} GB RAM",
+                12f, steel, false).apply { setPadding(0, dp(7), 0, 0) })
+            if (deviceRamMb in 1 until spec.minRamMb) {
+                card.addView(label("⚠ May exceed this device's RAM — could fail to load.", 12f, amber, false)
+                    .apply { setPadding(0, dp(5), 0, 0) })
+            }
+            card.addView(label(spec.blurb, 13f, fog, false).apply { setPadding(0, dp(8), 0, dp(2)) })
+            card.addView(label("Best for: ${spec.useCase}", 12.5f, Color.parseColor("#9DBE7A"), false)
+                .apply { setPadding(0, dp(6), 0, dp(2)); setTypeface(typeface, Typeface.ITALIC) })
+        }
 
         // Buttons row
         val btnRow = LinearLayout(this).apply {
@@ -234,8 +308,17 @@ class RuntimeActivity : ComponentActivity() {
         val svc = service
         val activeId = ModelStore.activeId(this)
         val loadedName = runCatching { svc?.warmModels()?.firstOrNull() }.getOrNull()
-        statusView.text = if (svc != null) "● Runtime active" else "○ Runtime not connected"
-        statusView.setTextColor(if (svc != null) green else Color.parseColor("#FF6B7A"))
+        val anyInstalled = ModelStore.installedIds(this).isNotEmpty()
+        statusView.text = when {
+            svc == null -> "Connecting…"
+            !anyInstalled -> if (simpleMode) "Pick an AI below to get started" else "○ No model installed"
+            else -> if (simpleMode) "✓ Ready to use" else "● Runtime active"
+        }
+        statusView.setTextColor(when {
+            svc == null -> steel
+            !anyInstalled -> amber
+            else -> green
+        })
 
         val downloadingId = Downloads.activeId
         for (spec in ModelCatalog.models) {
@@ -261,7 +344,11 @@ class RuntimeActivity : ComponentActivity() {
             when {
                 isActive -> {
                     val warm = loadedName != null
-                    row.actionBtn.text = if (warm) "Active ✓ (warm)" else "Active ✓"
+                    row.actionBtn.text = when {
+                        simpleMode -> "In use ✓"
+                        warm -> "Active ✓ (warm)"
+                        else -> "Active ✓"
+                    }
                     row.actionBtn.background = pillBg()
                     row.actionBtn.setTextColor(Color.parseColor("#0B0E10"))
                     row.actionBtn.isEnabled = false
@@ -269,7 +356,7 @@ class RuntimeActivity : ComponentActivity() {
                     row.secondaryBtn.text = "Remove"
                 }
                 installed -> {
-                    row.actionBtn.text = "Use this model"
+                    row.actionBtn.text = if (simpleMode) "Use this one" else "Use this model"
                     row.actionBtn.background = ghostGreenBg()
                     row.actionBtn.setTextColor(green)
                     row.actionBtn.isEnabled = !busyElsewhere
@@ -277,7 +364,7 @@ class RuntimeActivity : ComponentActivity() {
                     row.secondaryBtn.text = "Remove"
                 }
                 else -> {
-                    row.actionBtn.text = "Download  ·  ${fmtMb(spec.sizeMb)}"
+                    row.actionBtn.text = if (simpleMode) "Download" else "Download  ·  ${fmtMb(spec.sizeMb)}"
                     row.actionBtn.background = pillBg()
                     row.actionBtn.setTextColor(Color.parseColor("#0B0E10"))
                     row.actionBtn.isEnabled = !busyElsewhere
@@ -352,103 +439,4 @@ class RuntimeActivity : ComponentActivity() {
                 err == null -> "Installed & active ✓"
                 err == "cancelled" -> "Download cancelled"
                 else -> "Download failed: $err"
-            }
-            refresh()
-        }
-    }
-
-    // ---- Lifecycle ------------------------------------------------------------
-
-    override fun onStart() {
-        super.onStart()
-        // Observe download progress while visible; reconcile anything already running.
-        Downloads.listener = { id -> runOnUiThread { onDownloadUpdate(id) } }
-        val i = Intent().setComponent(ComponentName(packageName, "ai.edgelm.service.EdgeLMService"))
-        runCatching { startForegroundService(i) }
-        runCatching { bindService(i, conn, Context.BIND_AUTO_CREATE) }
-        Downloads.activeId?.let { onDownloadUpdate(it) }
-        refresh()
-    }
-    override fun onStop() {
-        super.onStop()
-        Downloads.listener = null
-        runCatching { unbindService(conn) }
-    }
-
-    private fun askNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1408)
-        }
-    }
-
-    // ---- Small view helpers ---------------------------------------------------
-
-    private fun label(s: String, size: Float, color: Int, bold: Boolean) = TextView(this).apply {
-        text = s; textSize = size; setTextColor(color); if (bold) setTypeface(typeface, Typeface.BOLD)
-    }
-    private fun centered(v: TextView) = v.apply {
-        gravity = Gravity.CENTER_HORIZONTAL
-        layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
-    }
-
-    private fun pill(text: String) = TextView(this).apply {
-        this.text = text; textSize = 11.5f; setTextColor(green)
-        setPadding(dp(10), dp(4), dp(10), dp(4))
-        background = GradientDrawable().apply {
-            cornerRadius = dp(999).toFloat(); setColor(Color.parseColor("#182013"))
-            setStroke(dp(1), Color.parseColor("#2E3941"))
-        }
-        typeface = Typeface.MONOSPACE
-    }
-
-    private fun cardBg() = GradientDrawable().apply {
-        cornerRadius = dp(16).toFloat(); setColor(carbon); setStroke(dp(1), Color.parseColor("#242D33"))
-    }
-
-    // Filled green pill (primary).
-    private fun pillBg(): StateListDrawable {
-        fun d(c: String) = GradientDrawable().apply { cornerRadius = dp(13).toFloat(); setColor(Color.parseColor(c)) }
-        return StateListDrawable().apply {
-            addState(intArrayOf(-android.R.attr.state_enabled), d("#5A7A2E"))
-            addState(intArrayOf(android.R.attr.state_pressed), d("#7CEB1E"))
-            addState(intArrayOf(), d("#9BFF3C"))
-        }
-    }
-    // Green outline (secondary, active-switch).
-    private fun ghostGreenBg(): StateListDrawable {
-        fun d(fill: Int) = GradientDrawable().apply {
-            cornerRadius = dp(13).toFloat(); setColor(fill); setStroke(dp(1), green)
-        }
-        return StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_pressed), d(Color.parseColor("#182013")))
-            addState(intArrayOf(), d(Color.TRANSPARENT))
-        }
-    }
-    // Neutral outline (Remove).
-    private fun ghostBg(): StateListDrawable {
-        fun d(fill: Int) = GradientDrawable().apply {
-            cornerRadius = dp(13).toFloat(); setColor(fill); setStroke(dp(1), Color.parseColor("#2E3941"))
-        }
-        return StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_pressed), d(Color.parseColor("#1A2024")))
-            addState(intArrayOf(), d(Color.TRANSPARENT))
-        }
-    }
-    private fun greenProgress(): android.graphics.drawable.Drawable {
-        val r = dp(6).toFloat()
-        val track = GradientDrawable().apply { cornerRadius = r; setColor(Color.parseColor("#1E262B")) }
-        val fill = GradientDrawable().apply { cornerRadius = r; setColor(green) }
-        return android.graphics.drawable.LayerDrawable(arrayOf(
-            track,
-            android.graphics.drawable.ClipDrawable(fill, Gravity.START, android.graphics.drawable.ClipDrawable.HORIZONTAL)
-        )).apply { setId(0, android.R.id.background); setId(1, android.R.id.progress) }
-    }
-
-    private fun fmtMb(mb: Int) = if (mb >= 1024) "%.1f GB".format(mb / 1024.0) else "$mb MB"
-    private fun gb(bytes: Long) = "%.0f".format(bytes / 1.0e9).let { it }
-    private fun gbFromMb(mb: Int) = "%.1f".format(mb / 1024.0)
-
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
-}
+           

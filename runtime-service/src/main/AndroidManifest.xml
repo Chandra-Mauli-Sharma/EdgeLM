@@ -77,16 +77,16 @@
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.EdgeLM.Runtime" />
 
+        <!-- First-run onboarding. -->
+        <activity
+            android:name="ai.edgelm.runtime.OnboardingActivity"
+            android:exported="false"
+            android:theme="@style/Theme.EdgeLM.Runtime" />
+
         <!-- Landing / status screen so the runtime is a real, openable, listable app. -->
         <activity
             android:name="ai.edgelm.runtime.RuntimeActivity"
             android:exported="true"
             android:theme="@style/Theme.EdgeLM.Splash">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-    </application>
-</manifest>
+         

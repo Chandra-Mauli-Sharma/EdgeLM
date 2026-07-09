@@ -20,7 +20,9 @@ data class ModelSpec(
     val minRamMb: Int,     // rough RAM needed to actually run it
     val license: String,
     val blurb: String,
-    val useCase: String,   // recommended "best for" one-liner
+    val useCase: String,   // recommended "best for" one-liner (Advanced view)
+    val simpleName: String,    // friendly, jargon-free name (Simple view)
+    val simpleTagline: String, // plain-language one-liner (Simple view)
     val url: String,
 )
 
@@ -38,6 +40,8 @@ object ModelCatalog {
             blurb = "Tiny and fast — runs on virtually any phone. Great default for chat, " +
                     "summarization and simple tools. Lowest memory footprint in the catalog.",
             useCase = "Autocomplete, quick replies, text classification, and low-latency tasks on any device.",
+            simpleName = "Quick Assistant",
+            simpleTagline = "Fast and light. Great for quick questions and short replies — works on any phone.",
             url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true",
         ),
         ModelSpec(
@@ -48,6 +52,8 @@ object ModelCatalog {
             blurb = "Meta's compact model with a large context window. Strong instruction " +
                     "following for its size; a good everyday balance of speed and quality.",
             useCase = "Everyday chat, summarizing long documents, and note/email drafting (128K context).",
+            simpleName = "Everyday Assistant",
+            simpleTagline = "A well-rounded helper for chatting, writing, and summarizing.",
             url = "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf?download=true",
         ),
         ModelSpec(
@@ -58,6 +64,8 @@ object ModelCatalog {
             blurb = "Noticeably sharper reasoning and multilingual ability than the 0.5B, " +
                     "still light enough for most mid-range devices. Apache-2.0.",
             useCase = "Multilingual chat, structured/JSON output, and light reasoning where 0.5B falls short.",
+            simpleName = "Smart Assistant",
+            simpleTagline = "Sharper answers and better with other languages.",
             url = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf?download=true",
         ),
         ModelSpec(
@@ -68,6 +76,8 @@ object ModelCatalog {
             blurb = "A capable mid-size model for higher-quality writing and reasoning. " +
                     "Best on phones with 6 GB+ RAM.",
             useCase = "High-quality writing and rewriting, RAG answers, and multi-step reasoning on 6 GB+ phones.",
+            simpleName = "Pro Assistant",
+            simpleTagline = "Higher-quality writing and thinking. Best on newer phones.",
             url = "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf?download=true",
         ),
         ModelSpec(
@@ -78,52 +88,35 @@ object ModelCatalog {
             blurb = "Microsoft's strong small model — excellent at reasoning, code and math. " +
                     "The heaviest here; flagship phones only.",
             useCase = "Coding assistance, math, and complex reasoning where quality matters most (flagship devices).",
+            simpleName = "Expert Assistant",
+            simpleTagline = "Best for tricky questions, math, and coding help. Powerful phones only.",
             url = "https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf?download=true",
         ),
     )
 
     fun byId(id: String?): ModelSpec? = models.firstOrNull { it.id == id }
-}
-
-/**
- * Multi-model on-disk storage. Downloaded models live at files/models/<id>.gguf;
- * files/active_model holds the id the engine should load. Both the app process
- * (picker UI) and the :core service process share filesDir (same app UID), so the
- * service just re-reads the pointer on reloadModel().
- */
-object ModelStore {
-    private fun modelsDir(ctx: Context) = File(ctx.filesDir, "models").apply { mkdirs() }
-    private fun pointer(ctx: Context) = File(ctx.filesDir, "active_model")
-
-    fun fileFor(ctx: Context, id: String) = File(modelsDir(ctx), "$id.gguf")
-    fun isInstalled(ctx: Context, id: String) = fileFor(ctx, id).exists()
-
-    fun installedIds(ctx: Context): Set<String> =
-        modelsDir(ctx).listFiles()?.filter { it.extension == "gguf" }
-            ?.map { it.nameWithoutExtension }?.toSet() ?: emptySet()
-
-    fun activeId(ctx: Context): String? =
-        pointer(ctx).takeIf { it.exists() }?.readText()?.trim()?.ifBlank { null }
-
-    fun setActive(ctx: Context, id: String) = pointer(ctx).writeText(id)
-    fun clearActive(ctx: Context) { pointer(ctx).delete() }
 
     /**
-     * Absolute path the engine should load, or "" if nothing is installed. Falls
-     * back to the legacy single-slot files/model.gguf from before the catalog.
+     * The model to suggest by default for a device with [ramMb] total RAM: the
+     * largest one that comfortably fits (using ~half of RAM as a safe budget), or
+     * the smallest model if nothing fits. Falls back to a balanced pick when RAM
+     * is unknown.
      */
-    fun activePath(ctx: Context): String {
-        activeId(ctx)?.let { id ->
-            val f = fileFor(ctx, id)
-            if (f.exists()) return f.absolutePath
-        }
-        val legacy = File(ctx.filesDir, "model.gguf")
-        return if (legacy.exists()) legacy.absolutePath else ""
+    fun recommendedFor(ramMb: Int): ModelSpec {
+        if (ramMb <= 0) return byId("llama-3.2-1b-instruct") ?: models.first()
+        val budget = (ramMb * 0.5).toInt()
+        return models.filter { it.minRamMb <= budget }.maxByOrNull { it.minRamMb }
+            ?: models.minByOrNull { it.minRamMb }!!
     }
 
-    /** Remove an installed model; if it was active, clear the pointer. */
-    fun remove(ctx: Context, id: String) {
-        fileFor(ctx, id).delete()
-        if (activeId(ctx) == id) clearActive(ctx)
+    /** A plain-language one-word speed/capability hint for the simple UI. */
+    fun hintFor(spec: ModelSpec): String = when {
+        spec.sizeMb < 600 -> "Fastest"
+        spec.sizeMb < 1000 -> "Fast"
+        spec.sizeMb < 1500 -> "Balanced"
+        spec.sizeMb < 2200 -> "Smarter"
+        else -> "Most capable"
     }
 }
+
+/

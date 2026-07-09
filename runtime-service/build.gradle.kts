@@ -1,7 +1,18 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// Release signing is driven by keystore.properties at the repo root (gitignored).
+// If it's absent, everything still builds — release just comes out unsigned.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) FileInputStream(keystorePropsFile).use { load(it) }
+}
+val hasReleaseSigning = keystorePropsFile.exists()
 
 android {
     namespace = "ai.edgelm.runtime"
@@ -12,7 +23,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "0.0.1-phase0"
+        versionName = "0.1.0"
 
         ndk {
             // arm64-v8a is the primary target; armeabi-v7a adds legacy 32-bit reach
@@ -37,22 +48,8 @@ android {
         }
     }
 
-    buildFeatures {
-        aidl = true
-        buildConfig = true   // BuildConfig.DEBUG gates the localhost HTTP shim
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions { jvmTarget = "17" }
-}
-
-dependencies {
-    implementation(project(":contract"))
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("org.nanohttpd:nanohttpd:2.3.1")   // OpenAI-compatible HTTP shim
-    implementation("androidx.activity:activity-ktx:1.9.0")   // landing/status screen
-    implementation("androidx.core:core-splashscreen:1.0.1")  // branded splash screen
-}
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("s
