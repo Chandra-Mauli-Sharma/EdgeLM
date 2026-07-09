@@ -14,6 +14,10 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 /**
  * First-run welcome. Explains, in plain language, what EdgeLM is and why it's
@@ -29,7 +33,10 @@ class OnboardingActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = bg; window.navigationBarColor = bg
+        enableEdgeToEdge(
+            SystemBarStyle.dark(Color.TRANSPARENT),
+            SystemBarStyle.dark(Color.TRANSPARENT),
+        )
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setBackgroundColor(bg)
@@ -67,6 +74,11 @@ class OnboardingActivity : ComponentActivity() {
             .apply { setPadding(0, dp(14), 0, 0) })
 
         setContentView(ScrollView(this).apply { setBackgroundColor(bg); addView(root) })
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val b = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(dp(28) + b.left, dp(24) + b.top, dp(28) + b.right, dp(24) + b.bottom)
+            insets
+        }
     }
 
     private fun feature(emoji: String, title: String, body: String): LinearLayout {

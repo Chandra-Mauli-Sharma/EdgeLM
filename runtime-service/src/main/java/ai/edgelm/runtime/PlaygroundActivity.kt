@@ -22,6 +22,10 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import ai.edgelm.contract.IEdgeLMService
 import ai.edgelm.contract.ITokenCallback
 
@@ -69,7 +73,10 @@ class PlaygroundActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = bg; window.navigationBarColor = bg
+        enableEdgeToEdge(
+            SystemBarStyle.dark(Color.TRANSPARENT),
+            SystemBarStyle.dark(Color.TRANSPARENT),
+        )
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; setBackgroundColor(bg)
@@ -146,6 +153,12 @@ class PlaygroundActivity : ComponentActivity() {
         root.addView(inputRow)
 
         setContentView(root)
+        // Pad by system bars, and by the IME so the input rises above the keyboard.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val b = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+            v.setPadding(dp(18) + b.left, dp(16) + b.top, dp(18) + b.right, dp(14) + b.bottom)
+            insets
+        }
     }
 
     override fun onStart() {

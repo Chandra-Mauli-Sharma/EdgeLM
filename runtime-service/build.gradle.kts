@@ -16,14 +16,14 @@ val hasReleaseSigning = keystorePropsFile.exists()
 
 android {
     namespace = "ai.edgelm.runtime"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "ai.edgelm.runtime"   // the SDK binds to this package
         minSdk = 26
-        targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        targetSdk = 35                         // Play requires API 35+ (Android 15)
+        versionCode = 2
+        versionName = "0.1.1"
 
         ndk {
             // arm64-v8a is the primary target; armeabi-v7a adds legacy 32-bit reach
