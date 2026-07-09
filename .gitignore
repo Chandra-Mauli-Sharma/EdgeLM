@@ -13,3 +13,6 @@ local.properties
 keystore.properties
 *.jks
 *.keystore
+
+# Raw device screenshots (source for the marketing shots; may contain personal info)
+docs/play/screenshots/Screenshot_*.png
