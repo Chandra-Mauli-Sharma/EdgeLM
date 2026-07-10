@@ -1,5 +1,13 @@
 # EdgeLM — AI that runs on your phone
 
+<p align="center">
+  <img src="docs/play/feature-graphic-1024x500.png" alt="EdgeLM — The Android AI Runtime" width="100%">
+</p>
+
+<p align="center">
+  <a href="https://play.google.com/store/apps/details?id=ai.edgelm.runtime"><b>Get it on Google Play</b></a>
+</p>
+
 EdgeLM is a shared, on-device AI runtime for Android. It runs language models
 **directly on your phone** — privately, offline, and shared by every app that wants to
 use AI. Download a model once, and any EdgeLM-powered app can use it, instead of each
