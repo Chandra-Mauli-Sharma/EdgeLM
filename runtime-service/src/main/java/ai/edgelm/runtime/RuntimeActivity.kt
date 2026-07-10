@@ -36,6 +36,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import ai.edgelm.contract.IEdgeLMService
 
 /**
@@ -43,8 +48,8 @@ import ai.edgelm.contract.IEdgeLMService
  *
  * Shows the catalog (see [ModelCatalog]); the user downloads one or more models,
  * switches the active one instantly (no re-download), and can remove models to
- * reclaim space. Downloads run in [ModelDownloadService] (a foreground service) so
- * they survive leaving this screen; progress is observed via the [Downloads] bus.
+ * reclaim space. Downloads run in [DownloadWorker] (WorkManager) so they survive the
+ * app closing / process death; progress is observed via the persisted WorkInfo.
  */
 class RuntimeActivity : ComponentActivity() {
 
@@ -59,6 +64,11 @@ class RuntimeActivity : ComponentActivity() {
 
     private var service: IEdgeLMService? = null
     private var lastFinishedId: String? = null   // show a one-shot result line on this card
+    private var finishedMsg: String? = null      // the message for that card
+
+    // Download state, sourced from WorkManager's observed WorkInfo.
+    private var activeDownloadId: String? = null
+    private var dlPct = -1; private var dlRead = 0L; private var dlTotal = 0L
 
     private var simpleMode = true                // plain, recommended-first view (default)
     private var showAllSimple = false            // "Show all models" expander in simple mode
@@ -96,21 +106,24 @@ class RuntimeActivity : ComponentActivity() {
         val splash = installSplashScreen()
         splash.setKeepOnScreenCondition { SystemClock.uptimeMillis() - splashStart < 850L }
         splash.setOnExitAnimationListener { provider ->
-            val icon = provider.iconView
-            val set = AnimatorSet().apply {
-                playTogether(
-                    ObjectAnimator.ofFloat(icon, View.ALPHA, 1f, 0f),
-                    ObjectAnimator.ofFloat(icon, View.TRANSLATION_Y, 0f, -icon.height * 0.35f),
-                    ObjectAnimator.ofFloat(icon, View.SCALE_X, 1f, 0.72f),
-                    ObjectAnimator.ofFloat(icon, View.SCALE_Y, 1f, 0.72f),
-                )
-                duration = 480L
-                interpolator = AccelerateInterpolator(1.3f)
-                addListener(object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) = provider.remove()
-                })
-            }
-            set.start()
+            // Animate the whole splash view, not provider.iconView: on some launch
+            // paths (e.g. from a notification) the library's iconView is null and
+            // throws. Guard so the splash is always removed even if anything fails.
+            runCatching {
+                val v = provider.view
+                AnimatorSet().apply {
+                    playTogether(
+                        ObjectAnimator.ofFloat(v, View.ALPHA, 1f, 0f),
+                        ObjectAnimator.ofFloat(v, View.SCALE_X, 1f, 1.06f),
+                        ObjectAnimator.ofFloat(v, View.SCALE_Y, 1f, 1.06f),
+                    )
+                    duration = 360L
+                    interpolator = AccelerateInterpolator(1.2f)
+                    addListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) = provider.remove()
+                    })
+                }.start()
+            }.onFailure { provider.remove() }
         }
 
         super.onCreate(savedInstanceState)
@@ -196,6 +209,42 @@ class RuntimeActivity : ComponentActivity() {
         simpleMode = Prefs.isSimpleMode(this)
         applyMode()
         askNotificationPermission()
+        observeDownloads()
+    }
+
+    /** Reconcile the UI from WorkManager — survives process death, restores progress. */
+    private fun observeDownloads() {
+        WorkManager.getInstance(this)
+            .getWorkInfosForUniqueWorkLiveData(DownloadWorker.UNIQUE)
+            .observe(this) { infos -> onWorkInfo(infos?.lastOrNull()) }
+    }
+
+    private fun onWorkInfo(info: WorkInfo?) {
+        val id = info?.tags?.firstOrNull { it.startsWith(DownloadWorker.TAG_PREFIX) }
+            ?.removePrefix(DownloadWorker.TAG_PREFIX)
+        when (info?.state) {
+            WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING, WorkInfo.State.BLOCKED -> {
+                activeDownloadId = id
+                dlPct = info.progress.getInt(DownloadWorker.KEY_PCT, -1)
+                dlRead = info.progress.getLong(DownloadWorker.KEY_READ, 0)
+                dlTotal = info.progress.getLong(DownloadWorker.KEY_TOTAL, 0)
+            }
+            WorkInfo.State.SUCCEEDED -> { activeDownloadId = null; lastFinishedId = id }
+            WorkInfo.State.FAILED -> {
+                activeDownloadId = null; lastFinishedId = id
+            }
+            WorkInfo.State.CANCELLED -> { activeDownloadId = null; lastFinishedId = id }
+            null -> { activeDownloadId = null }
+        }
+        // stash a result message for the finished card
+        finishedMsg = when (info?.state) {
+            WorkInfo.State.SUCCEEDED -> "Installed & active ✓"
+            WorkInfo.State.CANCELLED -> "Download cancelled"
+            WorkInfo.State.FAILED ->
+                "Download failed: " + (info.outputData.getString(DownloadWorker.KEY_ERROR) ?: "error")
+            else -> finishedMsg
+        }
+        refresh()
     }
 
     /** Applies Simple vs Advanced chrome and rebuilds the model list. */
@@ -305,7 +354,7 @@ class RuntimeActivity : ComponentActivity() {
             setTextColor(steel); background = ghostBg(); stateListAnimator = null
             setPadding(dp(16), dp(12), dp(16), dp(12))
             layoutParams = LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { marginStart = dp(10) }
-            setOnClickListener { onRemoveClick(spec) }
+            setOnClickListener { onSecondaryClick(spec) }
         }
         btnRow.addView(actionBtn); btnRow.addView(secondaryBtn)
         card.addView(btnRow)
@@ -340,7 +389,7 @@ class RuntimeActivity : ComponentActivity() {
             else -> green
         })
 
-        val downloadingId = Downloads.activeId
+        val downloadingId = activeDownloadId
         for (spec in ModelCatalog.models) {
             val row = rows[spec.id] ?: continue
             val installed = ModelStore.isInstalled(this, spec.id)
@@ -353,13 +402,32 @@ class RuntimeActivity : ComponentActivity() {
                 row.actionBtn.isEnabled = false
                 row.actionBtn.setTextColor(Color.parseColor("#0B0E10"))
                 row.actionBtn.background = pillBg()
-                row.secondaryBtn.visibility = View.GONE
-                continue // progress views driven by onDownloadUpdate()
+                // secondary button becomes an in-app Cancel while downloading
+                row.secondaryBtn.visibility = View.VISIBLE
+                row.secondaryBtn.text = "Cancel"
+                row.secondaryBtn.setTextColor(Color.parseColor("#FF6B7A"))
+                // progress driven by the observed WorkInfo
+                row.progress.visibility = View.VISIBLE
+                row.progressText.visibility = View.VISIBLE
+                if (dlPct >= 0) {
+                    row.progress.isIndeterminate = false; row.progress.progress = dlPct
+                    row.progressText.text = "Downloading… $dlPct%   (${fmtMb((dlRead / 1_048_576).toInt())} / ${fmtMb((dlTotal / 1_048_576).toInt())})"
+                } else {
+                    row.progress.isIndeterminate = true
+                    row.progressText.text = "Starting download…"
+                }
+                continue
             }
 
             row.progress.visibility = View.GONE
+            row.secondaryBtn.setTextColor(steel)   // reset from the red "Cancel" state
             // Keep a one-shot result line on the just-finished card; clear others.
-            if (spec.id != lastFinishedId) row.progressText.visibility = View.GONE
+            if (spec.id == lastFinishedId && finishedMsg != null) {
+                row.progressText.visibility = View.VISIBLE
+                row.progressText.text = finishedMsg
+            } else {
+                row.progressText.visibility = View.GONE
+            }
 
             when {
                 isActive -> {
@@ -396,72 +464,56 @@ class RuntimeActivity : ComponentActivity() {
 
     // ---- Actions --------------------------------------------------------------
 
+    /** Run a blocking Binder call off the UI thread, then refresh. reloadModel/
+     *  unloadModel do heavy native work; calling them on the main thread ANRs. */
+    private fun runtimeCall(work: (IEdgeLMService) -> Unit) {
+        val svc = service ?: return
+        Thread { runCatching { work(svc) }; runOnUiThread { refresh() } }.start()
+    }
+
     private fun onActionClick(spec: ModelSpec) {
-        if (Downloads.activeId != null) return   // one download at a time
+        if (activeDownloadId != null) return   // one download at a time
         if (ModelStore.isInstalled(this, spec.id)) {
             if (ModelStore.activeId(this) == spec.id) return // already active
             ModelStore.setActive(this, spec.id)
             lastFinishedId = null
-            runCatching { service?.reloadModel() }
+            runtimeCall { it.reloadModel() }
             refresh()
         } else {
             startDownload(spec)
         }
     }
 
+    /** The card's secondary button: Cancel while this model is downloading, else Remove. */
+    private fun onSecondaryClick(spec: ModelSpec) {
+        if (activeDownloadId == spec.id) cancelDownload() else onRemoveClick(spec)
+    }
+
+    private fun cancelDownload() {
+        WorkManager.getInstance(this).cancelUniqueWork(DownloadWorker.UNIQUE)
+        // UI updates via the observed WorkInfo (state -> CANCELLED)
+    }
+
     private fun onRemoveClick(spec: ModelSpec) {
-        if (Downloads.activeId != null) return
+        if (activeDownloadId != null) return
         val wasActive = ModelStore.activeId(this) == spec.id
         ModelStore.remove(this, spec.id)
-        if (wasActive) runCatching { service?.unloadModel() }  // nothing active now
-        if (lastFinishedId == spec.id) lastFinishedId = null
+        if (wasActive) runtimeCall { it.unloadModel() }  // nothing active now
+        if (lastFinishedId == spec.id) { lastFinishedId = null; finishedMsg = null }
         refresh()
     }
 
-    /** Kick off the background download service; progress arrives via [Downloads]. */
+    /** Enqueue a durable WorkManager download; progress arrives via the observed WorkInfo. */
     private fun startDownload(spec: ModelSpec) {
-        lastFinishedId = null
-        val row = rows[spec.id]
-        row?.progress?.apply { visibility = View.VISIBLE; isIndeterminate = true }
-        row?.progressText?.apply { visibility = View.VISIBLE; text = "Starting download…" }
-        runCatching {
-            startForegroundService(
-                Intent(this, ModelDownloadService::class.java)
-                    .putExtra(ModelDownloadService.EXTRA_ID, spec.id)
-            )
-        }
+        lastFinishedId = null; finishedMsg = null
+        activeDownloadId = spec.id; dlPct = -1
+        val req = OneTimeWorkRequestBuilder<DownloadWorker>()
+            .setInputData(workDataOf(DownloadWorker.KEY_ID to spec.id))
+            .addTag(DownloadWorker.TAG_PREFIX + spec.id)
+            .build()
+        WorkManager.getInstance(this)
+            .enqueueUniqueWork(DownloadWorker.UNIQUE, ExistingWorkPolicy.KEEP, req)
         refresh()
-    }
-
-    /** Called (on main thread) by the [Downloads] bus as a download progresses/ends. */
-    private fun onDownloadUpdate(id: String) {
-        val row = rows[id] ?: return
-        if (Downloads.activeId == id) {
-            row.progress.visibility = View.VISIBLE
-            row.progressText.visibility = View.VISIBLE
-            val pct = Downloads.pct
-            if (pct >= 0) {
-                row.progress.isIndeterminate = false; row.progress.progress = pct
-                row.progressText.text =
-                    "Downloading… $pct%   (${fmtMb((Downloads.read / 1_048_576).toInt())} / ${fmtMb((Downloads.total / 1_048_576).toInt())})"
-            } else {
-                row.progress.isIndeterminate = true
-                row.progressText.text = "Starting download…"
-            }
-            refresh()
-        } else {
-            // Finished (success / cancel / error).
-            lastFinishedId = id
-            val err = Downloads.lastError
-            row.progress.visibility = View.GONE
-            row.progressText.visibility = View.VISIBLE
-            row.progressText.text = when {
-                err == null -> "Installed & active ✓"
-                err == "cancelled" -> "Download cancelled"
-                else -> "Download failed: $err"
-            }
-            refresh()
-        }
     }
 
     // ---- Lifecycle ------------------------------------------------------------
@@ -473,17 +525,15 @@ class RuntimeActivity : ComponentActivity() {
             onboardingLaunched = true
             startActivity(Intent(this, OnboardingActivity::class.java))
         }
-        // Observe download progress while visible; reconcile anything already running.
-        Downloads.listener = { id -> runOnUiThread { onDownloadUpdate(id) } }
+        // Download progress is observed via WorkManager (observeDownloads); it's
+        // lifecycle-aware and reconciles across process death, so nothing to wire here.
         val i = Intent().setComponent(ComponentName(packageName, "ai.edgelm.service.EdgeLMService"))
         runCatching { startForegroundService(i) }
         runCatching { bindService(i, conn, Context.BIND_AUTO_CREATE) }
-        Downloads.activeId?.let { onDownloadUpdate(it) }
         refresh()
     }
     override fun onStop() {
         super.onStop()
-        Downloads.listener = null
         runCatching { unbindService(conn) }
     }
 

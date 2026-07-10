@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Loopback ServerSocket for the OpenAI-compatible HTTP shim (127.0.0.1:1408). -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -10,8 +11,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Model downloads run as a dataSync foreground service so a large transfer
-         survives the user leaving the picker screen. -->
+    <!-- Model downloads run via WorkManager as a dataSync foreground worker so a
+         large transfer survives the app closing / process death. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- The gate to the shared runtime. Any app that wants to bind EdgeLM must
@@ -63,11 +64,13 @@
             </intent-filter>
         </service>
 
-        <!-- Foreground service that downloads model GGUFs; survives leaving the app. -->
+        <!-- Model downloads run via WorkManager (DownloadWorker) so they survive the
+             app closing / process death. WorkManager's own foreground service needs
+             the dataSync type declared on API 34+. -->
         <service
-            android:name="ai.edgelm.runtime.ModelDownloadService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
         <!-- In-app chat playground to smoke-test the runtime + active model. -->
         <activity

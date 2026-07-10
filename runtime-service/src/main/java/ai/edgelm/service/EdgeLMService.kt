@@ -97,15 +97,12 @@ class EdgeLMService : Service() {
         // Go foreground immediately so there's a visible "EdgeLM running" chip and
         // the OS treats the shared runtime as in-use (survives OEM freezers).
         startForegroundNow()
-        val path = currentModelPath()
-        modelHandle = if (path.isNotEmpty()) NativeBridge.loadModel(path) else 0L
-        Log.i(TAG, "loadModel($path) -> handle=$modelHandle")
-        // The localhost OpenAI shim bypasses the Binder permission gate, so it's a
-        // dev/debug convenience only — never opened in release builds.
+        // IMPORTANT: do NOT load the model on the main thread here — mmap + context
+        // build takes seconds and would ANR. The model loads lazily on the first
+        // request (runInference), which runs on a worker thread.
         if (BuildConfig.DEBUG) startHttpShim()
         else Log.i(TAG, "HTTP shim disabled in release build (Binder-only)")
         updateNotification()
-        scheduleIdleUnload()   // free RAM if the runtime is opened but never used
     }
 
     /** Handles the keep-alive start and notification-action taps. A plain start
@@ -114,8 +111,9 @@ class EdgeLMService : Service() {
      *  OS revives the shared runtime if it's killed for memory. "Stop" tears it down. */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_UNLOAD -> unloadModelLocked()
-            ACTION_LOAD -> loadModelLocked()
+            // Load/unload are heavy (native mmap/free) — never run on the main thread.
+            ACTION_UNLOAD -> worker.execute { unloadModelLocked() }
+            ACTION_LOAD -> worker.execute { loadModelLocked() }
             ACTION_STOP -> { stopRuntime(); return START_NOT_STICKY }
         }
         return START_STICKY
@@ -185,7 +183,8 @@ class EdgeLMService : Service() {
         val open = PendingIntent.getActivity(
             this, 0,
             Intent(this, RuntimeActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                // launched from a service/notification (non-Activity context) => NEW_TASK required
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val text = statusLine()
