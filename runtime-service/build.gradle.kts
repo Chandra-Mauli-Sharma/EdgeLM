@@ -22,8 +22,8 @@ android {
         applicationId = "ai.edgelm.runtime"   // the SDK binds to this package
         minSdk = 26
         targetSdk = 35                         // Play requires API 35+ (Android 15)
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 7
+        versionName = "0.1.6"
 
         ndk {
             // arm64-v8a is the primary target; armeabi-v7a adds legacy 32-bit reach
@@ -91,4 +91,5 @@ dependencies {
     implementation("org.nanohttpd:nanohttpd:2.3.1")   // OpenAI-compatible HTTP shim
     implementation("androidx.activity:activity-ktx:1.9.0")   // landing/status screen
     implementation("androidx.core:core-splashscreen:1.0.1")  // branded splash screen
+    implementation("androidx.work:work-runtime-ktx:2.9.1")   // resilient model downloads
 }
