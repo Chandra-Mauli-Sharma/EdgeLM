@@ -12,10 +12,11 @@
         <item name="postSplashScreenTheme">@style/Theme.EdgeLM.Runtime</item>
     </style>
 
-    <!-- The real app theme used once the splash is dismissed. -->
+    <!-- The real app theme used once the splash is dismissed. Bar colors are NOT set
+         here: they're deprecated on Android 15 (SDK 35) and unnecessary under
+         edge-to-edge — enableEdgeToEdge() makes the bars transparent and the obsidian
+         windowBackground shows behind them. -->
     <style name="Theme.EdgeLM.Runtime" parent="@android:style/Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">@color/obsidian</item>
-        <item name="android:navigationBarColor">@color/obsidian</item>
         <item name="android:windowBackground">@color/obsidian</item>
     </style>
 </resources>

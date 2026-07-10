@@ -22,8 +22,8 @@ android {
         applicationId = "ai.edgelm.runtime"   // the SDK binds to this package
         minSdk = 26
         targetSdk = 35                         // Play requires API 35+ (Android 15)
-        versionCode = 8
-        versionName = "0.1.7"
+        versionCode = 9
+        versionName = "0.1.8"
 
         ndk {
             // arm64-v8a is the primary target; armeabi-v7a adds legacy 32-bit reach
