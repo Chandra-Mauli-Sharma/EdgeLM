@@ -5,7 +5,18 @@
 </p>
 
 <p align="center">
-  <a href="https://play.google.com/store/apps/details?id=ai.edgelm.runtime"><b>Get it on Google Play</b></a>
+  <a href="https://play.google.com/store/apps/details?id=ai.edgelm.runtime">
+    <img alt="Get it on Google Play" height="64"
+         src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png">
+  </a>
+</p>
+
+<p align="center">
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white">
+  <img alt="Min SDK" src="https://img.shields.io/badge/minSdk-26-blue">
+  <img alt="On-device" src="https://img.shields.io/badge/AI-on--device-9BFF3C">
+  <img alt="Private &amp; offline" src="https://img.shields.io/badge/private-offline-2DE3FF">
+  <img alt="License" src="https://img.shields.io/badge/license-see%20repo-lightgrey">
 </p>
 
 EdgeLM is a shared, on-device AI runtime for Android. It runs language models
