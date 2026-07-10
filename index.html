@@ -67,6 +67,9 @@
     font-weight:600;font-size:14px;padding:12px 20px;cursor:pointer;transition:.15s;white-space:nowrap}
   .btn-p{background:var(--signal);color:var(--obsidian)}
   .btn-p:hover{background:var(--signal-deep);transform:translateY(-1px)}
+  .playbadge{height:60px;vertical-align:middle;display:inline-block;transition:.15s}
+  .playbadge:hover{transform:translateY(-1px);filter:brightness(1.08)}
+  .hero .cta,.band .cta{align-items:center}
   .btn-g{border:1px solid var(--line2);color:var(--mist)}
   .btn-g:hover{border-color:var(--volt);background:var(--carbon)}
   @media(max-width:720px){nav .links a:not(.navcta){display:none}}
@@ -206,7 +209,7 @@
       <p class="sub">EdgeLM runs language models directly on your device — private, offline, and
       shared by every app. Download a model once; any EdgeLM-powered app can use it.</p>
       <div class="cta">
-        <a class="btn btn-p" href="https://play.google.com/store/apps/details?id=ai.edgelm.runtime" target="_blank" rel="noopener">Get it on Google Play</a>
+        <a href="https://play.google.com/store/apps/details?id=ai.edgelm.runtime" target="_blank" rel="noopener"><img class="playbadge" src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play"></a>
         <a class="btn btn-g" href="#developers">For developers →</a>
       </div>
       <p class="note">No cloud · no account · no tracking · works offline</p>
@@ -330,7 +333,7 @@ EdgeLM.<span class="fn">promptInstall</span>(context)</code></pre>
       <h2>Bring AI on-device.</h2>
       <p>Private, offline, shared by every app. Now on Google Play.</p>
       <div class="cta">
-        <a class="btn btn-p" href="https://play.google.com/store/apps/details?id=ai.edgelm.runtime" target="_blank" rel="noopener">Get it on Google Play</a>
+        <a href="https://play.google.com/store/apps/details?id=ai.edgelm.runtime" target="_blank" rel="noopener"><img class="playbadge" src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play"></a>
         <a class="btn btn-g" href="privacy.html">Privacy policy</a>
       </div>
     </div>
