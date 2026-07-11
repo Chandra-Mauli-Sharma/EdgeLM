@@ -71,6 +71,29 @@ static std::string format_turn(const std::string& user) {
     return "<|im_start|>user\n" + user + "<|im_end|>\n<|im_start|>assistant\n";
 }
 
+// A single glyph (emoji, CJK, accented letter) can span several tokens, so one
+// token's piece is often a *partial* UTF-8 sequence. Converting that partial byte
+// run to a Java string yields replacement chars ("?"). Return the byte length of the
+// longest prefix of `s` that ends on a complete UTF-8 character, so we can emit that
+// and hold the incomplete tail until the next token completes it.
+static size_t safe_utf8_len(const std::string& s) {
+    const size_t n = s.size();
+    // Scan back over at most 3 continuation bytes to find the last lead byte.
+    for (size_t back = 0; back < 4 && back < n; ++back) {
+        const size_t i = n - 1 - back;
+        const unsigned char c = (unsigned char)s[i];
+        if ((c & 0xC0) == 0x80) continue;            // continuation byte, keep scanning
+        size_t need;                                  // bytes this character needs
+        if      ((c & 0x80) == 0x00) need = 1;        // 0xxxxxxx  ASCII
+        else if ((c & 0xE0) == 0xC0) need = 2;        // 110xxxxx
+        else if ((c & 0xF0) == 0xE0) need = 3;        // 1110xxxx
+        else if ((c & 0xF8) == 0xF0) need = 4;        // 11110xxx
+        else                         return n;        // invalid lead: don't stall, flush it
+        return (i + need <= n) ? n : i;               // complete → all safe; else split before it
+    }
+    return n;   // no lead byte in the last 4 bytes (all ASCII/continuation): safe as-is
+}
+
 static void ensure_system(Model* m) {
     if (m->system_ready) return;
     llama_context*     ctx   = m->ctx;
@@ -130,21 +153,38 @@ int generate(Model* m, const std::string& sessionId, const std::string& prompt, 
     const auto t_start = clk::now();
     auto       t_first = t_start;
 
+    // Some Qwen GGUFs mark only <|endoftext|> as EOG, so the assistant's <|im_end|>
+    // slips through llama_vocab_is_eog and the model role-plays another turn. Treat
+    // <|im_end|> as an explicit stop token.
+    llama_token im_end = -1;
+    { llama_token t[4]; if (llama_tokenize(vocab, "<|im_end|>", 10, t, 4, false, true) == 1) im_end = t[0]; }
+
+    std::string pending;   // holds bytes not yet on a UTF-8 char boundary
     for (int generated = 0; generated < max_tokens; ++generated) {
         if (m->cancel || (sink.is_cancelled && sink.is_cancelled())) { LOGI("cancelled @ %d", generated); break; }
         if (n_pos + batch.n_tokens > n_ctx) { LOGI("context full"); break; }
         if (llama_decode(ctx, batch)) { LOGE("llama_decode failed"); break; }
         n_pos += batch.n_tokens;
         llama_token tok = llama_sampler_sample(smpl, ctx, -1);
-        if (llama_vocab_is_eog(vocab, tok)) break;
-        int n = llama_token_to_piece(vocab, tok, piece, sizeof(piece), 0, true);
-        if (n > 0 && sink.emit_chunk) sink.emit_chunk(std::string(piece, n));
+        if (llama_vocab_is_eog(vocab, tok) || tok == im_end) break;
+        // special=false: never render control tokens (e.g. a stray <|im_start|>) as text.
+        int n = llama_token_to_piece(vocab, tok, piece, sizeof(piece), 0, false);
+        if (n > 0) {
+            pending.append(piece, n);
+            const size_t safe = safe_utf8_len(pending);   // don't emit a half-formed glyph
+            if (safe > 0 && sink.emit_chunk) {
+                sink.emit_chunk(pending.substr(0, safe));
+                pending.erase(0, safe);
+            }
+        }
         ++produced;
         if (produced == 1) t_first = clk::now();
         static thread_local llama_token one;
         one   = tok;
         batch = llama_batch_get_one(&one, 1);
     }
+    // Flush any trailing bytes (e.g. stopped mid-glyph on cancel / context-full).
+    if (!pending.empty() && sink.emit_chunk) sink.emit_chunk(pending);
 
     const auto t_end = clk::now();
     const double prefill_s = std::chrono::duration<double>(t_first - t_start).count();
