@@ -103,7 +103,8 @@ EdgeLM.chat(model = "default", prompt = "Hello", sessionId = "chat-1")
 ```
 
 The permission and package visibility come in automatically via manifest merge, and the
-runtime serves apps by priority. **Full guide: [`docs/INTEGRATION.md`](docs/INTEGRATION.md)**
+runtime serves apps by priority. **Runnable sample: [`samples/hello-edgelm`](samples/hello-edgelm)**
+(clone → `./gradlew installDebug`) · **full guide: [`docs/INTEGRATION.md`](docs/INTEGRATION.md)**
 · architecture & release kit in [`docs/`](docs/).
 
 ---
