@@ -12,8 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://play.google.com/store/apps/details?id=ai.edgelm.runtime"><img alt="Google Play version" src="https://img.shields.io/google-play/v/ai.edgelm.runtime?logo=googleplay&logoColor=white&label=Google%20Play&color=3DDC84"></a>
-  <a href="https://play.google.com/store/apps/details?id=ai.edgelm.runtime"><img alt="Rating" src="https://img.shields.io/google-play/stars/ai.edgelm.runtime?logo=googleplay&logoColor=white&color=9BFF3C"></a>
+  <a href="https://play.google.com/store/apps/details?id=ai.edgelm.runtime"><img alt="Google Play" src="https://img.shields.io/badge/Google%20Play-Live-3DDC84?logo=googleplay&logoColor=white"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white">
   <img alt="Min SDK" src="https://img.shields.io/badge/minSdk-26-blue">
   <img alt="On-device" src="https://img.shields.io/badge/AI-on--device-9BFF3C">
