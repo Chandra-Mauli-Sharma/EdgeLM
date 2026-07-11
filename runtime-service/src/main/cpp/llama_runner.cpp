@@ -159,32 +159,60 @@ int generate(Model* m, const std::string& sessionId, const std::string& prompt, 
     llama_token im_end = -1;
     { llama_token t[4]; if (llama_tokenize(vocab, "<|im_end|>", 10, t, 4, false, true) == 1) im_end = t[0]; }
 
-    std::string pending;   // holds bytes not yet on a UTF-8 char boundary
+    // Text-level stop markers. Belt-and-suspenders for the token check above: some
+    // GGUF tokenizations emit the chat template as *literal text* (normal tokens), so
+    // matching the <|im_end|> token id can't catch it. We scan the decoded text and
+    // stop at the first marker — and hold back a short tail each step so a marker split
+    // across tokens never reaches the UI before we can see it.
+    static const std::string STOPS[] = { "<|im_end|>", "<|im_start|>", "<|endoftext|>" };
+    size_t max_stop = 0;
+    for (const auto& s : STOPS) if (s.size() > max_stop) max_stop = s.size();
+
+    std::string decoded;   // full text decoded this turn
+    size_t      emitted = 0;   // bytes already sent to the sink
+
+    // Emit decoded[emitted, end), trimmed to a UTF-8 boundary so we never split a glyph.
+    auto flush_upto = [&](size_t end) {
+        if (end <= emitted) return;
+        std::string chunk = decoded.substr(emitted, end - emitted);
+        size_t safe = safe_utf8_len(chunk);
+        if (safe > 0 && sink.emit_chunk) { sink.emit_chunk(chunk.substr(0, safe)); emitted += safe; }
+    };
+
+    bool hit_stop = false;
     for (int generated = 0; generated < max_tokens; ++generated) {
         if (m->cancel || (sink.is_cancelled && sink.is_cancelled())) { LOGI("cancelled @ %d", generated); break; }
         if (n_pos + batch.n_tokens > n_ctx) { LOGI("context full"); break; }
         if (llama_decode(ctx, batch)) { LOGE("llama_decode failed"); break; }
         n_pos += batch.n_tokens;
         llama_token tok = llama_sampler_sample(smpl, ctx, -1);
-        if (llama_vocab_is_eog(vocab, tok) || tok == im_end) break;
-        // special=false: never render control tokens (e.g. a stray <|im_start|>) as text.
+        if (llama_vocab_is_eog(vocab, tok) || tok == im_end) break;   // clean stop token
+        // special=false: never render a control token (e.g. a stray <|im_start|>) as text.
         int n = llama_token_to_piece(vocab, tok, piece, sizeof(piece), 0, false);
-        if (n > 0) {
-            pending.append(piece, n);
-            const size_t safe = safe_utf8_len(pending);   // don't emit a half-formed glyph
-            if (safe > 0 && sink.emit_chunk) {
-                sink.emit_chunk(pending.substr(0, safe));
-                pending.erase(0, safe);
-            }
-        }
+        if (n > 0) decoded.append(piece, n);
         ++produced;
         if (produced == 1) t_first = clk::now();
+
+        // A stop marker fully appeared as text → emit up to it and stop.
+        size_t cut = std::string::npos;
+        for (const auto& s : STOPS) {
+            size_t p = decoded.find(s, emitted);
+            if (p != std::string::npos && (cut == std::string::npos || p < cut)) cut = p;
+        }
+        if (cut != std::string::npos) { flush_upto(cut); hit_stop = true; break; }
+
+        // Otherwise flush all but a short tail that could be the start of a marker.
+        size_t avail = decoded.size() - emitted;
+        size_t hold  = (avail < max_stop - 1) ? avail : (max_stop - 1);
+        flush_upto(decoded.size() - hold);
+
         static thread_local llama_token one;
         one   = tok;
         batch = llama_batch_get_one(&one, 1);
     }
-    // Flush any trailing bytes (e.g. stopped mid-glyph on cancel / context-full).
-    if (!pending.empty() && sink.emit_chunk) sink.emit_chunk(pending);
+    // Clean stop (EOG / im_end / context / cancel): no marker present, flush the rest.
+    if (!hit_stop && emitted < decoded.size() && sink.emit_chunk)
+        sink.emit_chunk(decoded.substr(emitted));
 
     const auto t_end = clk::now();
     const double prefill_s = std::chrono::duration<double>(t_first - t_start).count();
