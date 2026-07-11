@@ -1,0 +1,10 @@
+# JitPack build config. Publishes ONLY the two library modules (:contract, :sdk)
+# so JitPack never builds the native runtime-service (NDK/CMake/llama.cpp), which
+# it can't compile on its servers and isn't needed by SDK consumers.
+jdk:
+  - openjdk17
+before_install:
+  # compileSdk 35 is recent; make sure the platform is present (best-effort).
+  - yes | sdkmanager "platforms;android-35" "build-tools;35.0.0" >/dev/null 2>&1 || true
+install:
+  - ./gradlew :contract:publishReleasePublicationToMavenLocal :sdk:publishReleasePublicationToMavenLocal --no-daemon --stacktrace
