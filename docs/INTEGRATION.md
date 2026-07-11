@@ -5,6 +5,10 @@ EdgeLM runtime** (a separate app the user installs from Google Play) — you nev
 or manage model weights, and the model stays resident in memory shared across every
 EdgeLM-powered app.
 
+> **In a hurry?** There's a complete, runnable sample at
+> [`samples/hello-edgelm`](../samples/hello-edgelm) — clone it, `./gradlew installDebug`,
+> and you have a working streaming chat app to copy from.
+
 ## 1. Add the dependency (JitPack)
 
 In `settings.gradle.kts` (or your root `build.gradle`), add the JitPack repo:
