@@ -121,6 +121,8 @@ class PlaygroundActivity : ComponentActivity() {
             "Explain on-device AI simply",
             "List 3 uses for a local LLM",
             "What's 17 × 23?",
+            "Reply using 3 emoji 🎉",
+            "Say 'thank you' in French, Japanese & Hindi",
         ).forEach { prompt -> chipRow.addView(chip(prompt)) }
         root.addView(HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
