@@ -39,4 +39,12 @@ interface IEdgeLMService {
      *  Returns true if the runtime is now idle (no model resident). Appended at the
      *  end for ABI stability — never reorder methods above this. */
     boolean unloadModel();
+
+    /**
+     * Ensure the active model is loaded and warm, running the one-time CPU-vs-GPU
+     * backend probe on first load. Blocks until ready (call off the UI thread).
+     * @return a short engine label for display, e.g. "CPU" or "GPU · Mali-G615 MC6",
+     *         or "" if no model is available. Appended at the end for ABI stability.
+     */
+    String prepareEngine();
 }

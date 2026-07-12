@@ -17,9 +17,10 @@ it's done. Each step maps to a part of `docs/edgelm-architecture.html`.
 | **OpenAI HTTP shim** | ✅ Shipped | `127.0.0.1:1408/v1` live; `/health`, `/v1/models`, `/v1/chat/completions` (SSE) |
 | **Warm context reuse** | ✅ Shipped | Context created once at load; **prefill 2.26s → ~0.6s**, and it lifted decode 7.8 → 23 tok/s (hot buffers) |
 | **Honest metrics** | ✅ Shipped | Demo shows decode-only tok/s; native `perf:` log for prefill vs decode |
-| Vulkan GPU backend | ⏳ Gated | Needs LunarG Vulkan SDK (`glslc`) on the host; then 2-line enable |
-| Full session KV reuse | ◻ Next | Multi-turn warm KV + prompt-prefix cache (Level 2) |
-| Real scheduler | ◻ Next | Priority + token-boundary preemption (`PHASE1-SCHEDULER.md`) |
+| **Full session KV reuse** | ✅ Shipped | Warm per-session KV + prompt-prefix cache in `llama_runner.cpp` (`seq_rm` reuse; multi-turn recall confirmed) |
+| **Priority scheduler (admission)** | ✅ Shipped | `AIScheduler.kt`: priority-ordered admission + anti-starvation aging |
+| Vulkan GPU backend | ⏳ Gated / wired | CMake `EDGELM_VULKAN` option + GPU-first/CPU-fallback in `load_model` are in; flip on once LunarG `glslc` is installed, then measure |
+| Scheduler preemption | ◻ Next | Token-boundary preemption (needs continuous batching — `PHASE1-SCHEDULER.md`) |
 | QNN / NPU | ◻ Later | Phase-split placement |
 
 **Hard-won build lessons captured (so they don't bite twice):**
@@ -72,24 +73,24 @@ Localhost OpenAI-compatible server in the service process.
 **Exit:** `curl`/OpenAI-SDK against `http://localhost:1408/v1` streams tokens.
 **Depends on:** nothing (works over placeholder too) — can be done in parallel.
 
-### 3. Vulkan GPU backend — `PHASE1-VULKAN-GPU.md`  · arch Part 3
-Offload layers to the GPU; CPU fallback for bad drivers.
-**Exit:** 3B tok/s beats the CPU baseline (often clears >30); logcat shows the GPU.
-**Depends on:** step 1 (need real inference to offload and measure).
+### 3. Vulkan GPU backend — `PHASE1-VULKAN-GPU.md`  · arch Part 3  ⏳ WIRED, GATED
+Offload layers to the GPU; CPU fallback for bad drivers. The build wiring is in:
+CMake `EDGELM_VULKAN` option (default OFF) and GPU-first/CPU-fallback in
+`load_model`. Remaining: install LunarG `glslc`, flip `-DEDGELM_VULKAN=ON`, rebuild,
+and measure. **Exit:** 3B tok/s beats the CPU baseline (often clears >30); logcat
+shows the GPU. **Depends on:** step 1 (need real inference to offload and measure).
 
-### 4. Context pooling + KV reuse — `PHASE1-KV-POOLING.md`  · arch Part 4
-Turn the stateless per-call `llama_context` into warm, per-session state; reuse
-the shared prompt prefix instead of re-prefilling it every turn.
-**Exit:** second turn in a session skips prefill; measurable first-token latency
-drop on multi-turn chats.
-**Depends on:** step 1 (real contexts to pool).
+### 4. Context pooling + KV reuse — `PHASE1-KV-POOLING.md`  · arch Part 4  ✅ DONE
+Warm, per-session `llama_context` state with shared prompt-prefix reuse instead of
+re-prefilling every turn. **Exit met:** second turn in a session skips prefill;
+multi-turn recall confirmed. Implemented in `llama_runner.cpp`.
 
-### 5. Real scheduler — `PHASE1-SCHEDULER.md`  · arch Part 8
-Replace the single-thread FIFO with priority classes + token-boundary preemption
-+ aging + per-app quotas.
+### 5. Real scheduler — `PHASE1-SCHEDULER.md`  · arch Part 8  ◐ PARTIAL
+Priority classes + aging + admission are shipped (`AIScheduler.kt`). Still to do:
+**token-boundary preemption** — a foreground request interrupting a running
+background one — which needs the continuous-batching (multi-sequence) engine.
 **Exit:** a foreground request interrupts a background one within a token or two;
-no app can starve the others.
-**Depends on:** step 1 (token-level control), benefits from step 4.
+no app can starve the others. **Depends on:** step 1; benefits from step 4.
 
 ### 6. QNN / NPU backend + phase-split placement  · arch Parts 3, 11
 Vendor Qualcomm QNN as a backend; run prefill on GPU, decode on NPU/CPU.

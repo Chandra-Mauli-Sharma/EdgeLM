@@ -28,4 +28,8 @@ int    generate(Model* m, const std::string& sessionId, const std::string& promp
 void   request_cancel(Model* m);
 void   unload_model(Model* m);
 
+// Short label for the backend chosen at the most recent load_model(), for UI display:
+// "CPU", or "GPU · <device>" (e.g. "GPU · Mali-G615 MC6"). Empty before any load.
+const char* engine_label();
+
 } // namespace edgelm

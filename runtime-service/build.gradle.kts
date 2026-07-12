@@ -22,13 +22,16 @@ android {
         applicationId = "ai.edgelm.runtime"   // the SDK binds to this package
         minSdk = 26
         targetSdk = 35                         // Play requires API 35+ (Android 15)
-        versionCode = 11
-        versionName = "0.1.11"
+        versionCode = 12
+        versionName = "0.1.12"
 
         ndk {
-            // arm64-v8a is the primary target; armeabi-v7a adds legacy 32-bit reach
-            // (much slower — small models only). Add "x86_64" to run on an emulator.
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            // arm64-v8a ONLY while the Vulkan backend is enabled: ggml's Vulkan code
+            // doesn't compile for 32-bit ARM (strongly-typed Vulkan-Hpp handles break the
+            // casts), and every Vulkan-capable device is 64-bit. clear() first so a stale
+            // armeabi-v7a can't linger. Restore "armeabi-v7a" for the CPU-only release.
+            abiFilters.clear()
+            abiFilters.add("arm64-v8a")
         }
         externalNativeBuild {
             cmake {
@@ -37,6 +40,16 @@ android {
                 // to ship (or to misalign for 16 KB devices). Switch back to
                 // c++_shared only if you add a second .so that must share the STL.
                 arguments += "-DANDROID_STL=c++_static"
+                // GPU acceleration (PHASE1-VULKAN-GPU.md): requires the LunarG Vulkan
+                // SDK so `glslc` is on PATH at build time. Comment this out again if you
+                // build on a machine without the Vulkan toolchain.
+                arguments += "-DEDGELM_VULKAN=ON"
+                // Vulkan 1.1 entry points (vkGetPhysicalDeviceFeatures2, …) only appear in
+                // the NDK's libvulkan stub at API 28+, so link the NATIVE lib against
+                // android-28. Any device with usable Vulkan compute supports 1.1. Remove
+                // these two lines when you disable EDGELM_VULKAN for the CPU-only release.
+                arguments += "-DANDROID_PLATFORM=android-28"
+                arguments += "-DCMAKE_SYSTEM_VERSION=28"
             }
         }
     }
