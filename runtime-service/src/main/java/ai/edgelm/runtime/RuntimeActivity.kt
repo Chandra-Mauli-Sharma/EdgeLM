@@ -74,10 +74,14 @@ class RuntimeActivity : ComponentActivity() {
     private var showAllSimple = false            // "Show all models" expander in simple mode
     private var onboardingLaunched = false
 
+    private var calibratedModel: String? = null  // model id the engine probe last ran for
+    private var calibrating = false              // probe in flight → Playground gated
+
     private lateinit var statusView: TextView
     private lateinit var listContainer: LinearLayout   // holds the whole models section
     private lateinit var ramLine: TextView
     private lateinit var playgroundBtn: Button
+    private lateinit var engineLabelView: TextView     // "Engine: CPU / GPU · <device>"
     private lateinit var modeToggle: TextView
     private lateinit var modelsHeading: TextView
     private var deviceRamMb: Int = 0
@@ -172,6 +176,13 @@ class RuntimeActivity : ComponentActivity() {
         }
         root.addView(playgroundBtn)
 
+        // Shows which backend the one-time probe picked, e.g. "Engine: GPU · Mali-G615 MC6".
+        engineLabelView = centered(label("", 12f, steel, false)).apply {
+            visibility = View.GONE
+            setPadding(0, dp(6), 0, 0)
+        }
+        root.addView(engineLabelView)
+
         // Section heading row: title + Simple/Advanced toggle.
         val headingRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
@@ -251,8 +262,8 @@ class RuntimeActivity : ComponentActivity() {
     private fun applyMode() {
         modeToggle.text = if (simpleMode) "Advanced ›" else "‹ Simple"
         modelsHeading.text = if (simpleMode) "Choose your AI" else "Models"
-        playgroundBtn.text = if (simpleMode) "▶  Try it — chat with the AI"
-                             else "▶  Open Playground — test the runtime"
+        if (calibrating) { playgroundBtn.text = "Preparing the engine…"; playgroundBtn.isEnabled = false }
+        else             { playgroundBtn.text = playgroundNormalText(); playgroundBtn.isEnabled = true }
         ramLine.visibility = if (!simpleMode && deviceRamMb > 0) View.VISIBLE else View.GONE
         if (deviceRamMb > 0) ramLine.text = "This device: ${gb(deviceRamMb.toLong() * 1024 * 1024)} GB RAM"
         renderModels()
@@ -371,6 +382,42 @@ class RuntimeActivity : ComponentActivity() {
         return card
     }
 
+    // ---- Engine calibration (one-time CPU-vs-GPU probe, gates Playground) ------
+
+    private fun playgroundNormalText() =
+        if (simpleMode) "▶  Try it — chat with the AI" else "▶  Open Playground — test the runtime"
+
+    /** On first use of a model, warm the engine (which runs the CPU-vs-GPU probe) with
+     *  the Playground button disabled, then show which backend was chosen. Runs once per
+     *  model; the native side caches the choice so later launches only pay the load time. */
+    private fun maybeCalibrate() {
+        val svc = service ?: return
+        val activeId = ModelStore.activeId(this) ?: return
+        if (calibrating || activeDownloadId != null || activeId == calibratedModel) return
+
+        calibrating = true
+        playgroundBtn.text = "Preparing the engine…"
+        playgroundBtn.isEnabled = false
+        engineLabelView.text = "Optimizing for your device (one-time)…"
+        engineLabelView.visibility = View.VISIBLE
+
+        Thread {
+            val label = runCatching { svc.prepareEngine() }.getOrDefault("")
+            runOnUiThread {
+                calibrating = false
+                calibratedModel = activeId
+                playgroundBtn.text = playgroundNormalText()
+                playgroundBtn.isEnabled = true
+                if (label.isNotEmpty()) {
+                    engineLabelView.text = "Engine: $label"
+                    engineLabelView.visibility = View.VISIBLE
+                } else {
+                    engineLabelView.visibility = View.GONE
+                }
+            }
+        }.start()
+    }
+
     // ---- State refresh --------------------------------------------------------
 
     private fun refresh() {
@@ -388,6 +435,9 @@ class RuntimeActivity : ComponentActivity() {
             !anyInstalled -> amber
             else -> green
         })
+
+        // Warm + probe the engine on first use of the active model (gates Playground).
+        maybeCalibrate()
 
         val downloadingId = activeDownloadId
         for (spec in ModelCatalog.models) {

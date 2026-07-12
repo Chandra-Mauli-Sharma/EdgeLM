@@ -28,6 +28,9 @@ object NativeBridge {
     /** munmap + free. */
     external fun unloadModel(handle: Long)
 
+    /** Label of the backend chosen at the last [loadModel] ("CPU" / "GPU · <device>"). */
+    external fun engineLabel(): String
+
     /** Called from C++ to deliver tokens and check for cancellation. */
     interface TokenSink {
         fun onChunk(text: String)

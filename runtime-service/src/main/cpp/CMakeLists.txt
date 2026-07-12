@@ -8,9 +8,11 @@ project("edgelm")
 # Force -O3 AND the best per-ABI SIMD target. Flags are ABI-specific: armv8.2
 # dotprod+fp16 for arm64, NEON+VFPv4 for legacy 32-bit armeabi-v7a.
 if(ANDROID_ABI STREQUAL "arm64-v8a")
-    # armv8.2+ CPU (all modern Dimensity/Snapdragon 8xx). Drop the -march part if
-    # you must support older armv8.0 devices.
-    set(EDGELM_ARCH_FLAGS "-march=armv8.2-a+dotprod+fp16")
+    # armv8.2+ CPU (all modern Dimensity/Snapdragon 8xx). +i8mm enables ggml's int8
+    # matrix-multiply GEMM (used by Q4_0 aarch64 repacking + Q8_0); ggml dispatches it
+    # at runtime via HWCAP, so CPUs without i8mm safely fall back to dotprod/NEON.
+    # Drop the -march part if you must support older armv8.0 devices.
+    set(EDGELM_ARCH_FLAGS "-march=armv8.2-a+dotprod+i8mm+fp16")
 elseif(ANDROID_ABI STREQUAL "armeabi-v7a")
     # 32-bit ARM: enable NEON + VFPv4 (FMA). Far slower than arm64 and only for
     # legacy devices — the small models are the practical ceiling here — but it
@@ -42,6 +44,37 @@ set(LLAMA_CURL           OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP          OFF CACHE BOOL "" FORCE)  # NDK has no libgomp by default
 set(GGML_LLAMAFILE       OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE          OFF CACHE BOOL "" FORCE)  # cross-compiling: no -march=native
+
+# --- optional Vulkan GPU backend (PHASE1-VULKAN-GPU.md) ----------------------
+# OFF by default so the CPU build NEVER needs the host Vulkan SDK. ggml's Vulkan
+# backend precompiles its shaders at build time with `glslc` (LunarG Vulkan SDK)
+# — enabling this without glslc on PATH fails the build during shader generation.
+# Once glslc is installed, enable by passing -DEDGELM_VULKAN=ON from the Gradle
+# externalNativeBuild arguments (see runtime-service/build.gradle.kts). ggml links
+# the device's libvulkan.so itself (present on Android API 24+); nothing else in
+# the link step changes.
+option(EDGELM_VULKAN "Build the ggml Vulkan GPU backend" OFF)
+if(EDGELM_VULKAN)
+    set(GGML_VULKAN ON CACHE BOOL "" FORCE)
+    # ggml's Vulkan backend needs the HOST SPIRV-Headers / SPIRV-Tools / glslc from the
+    # LunarG Vulkan SDK at configure time (to generate its compute shaders). The Android
+    # NDK toolchain restricts find_package to the sysroot, so point it at the SDK and
+    # allow package lookups outside the sysroot.
+    if(DEFINED ENV{VULKAN_SDK})
+        list(APPEND CMAKE_PREFIX_PATH "$ENV{VULKAN_SDK}")
+        set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
+        # ggml-vulkan.cpp uses the C++ bindings <vulkan/vulkan.hpp>, which the NDK
+        # sysroot doesn't ship (it only has the C header). Add the SDK's headers to
+        # the include path — headers only; linking still uses the NDK's libvulkan.so.
+        include_directories("$ENV{VULKAN_SDK}/Include")
+        message(STATUS "EdgeLM: using VULKAN_SDK=$ENV{VULKAN_SDK}")
+    else()
+        message(WARNING "EdgeLM: VULKAN_SDK env var not set — SPIRV-Headers likely won't be found")
+    endif()
+    message(STATUS "EdgeLM: Vulkan GPU backend ENABLED")
+else()
+    message(STATUS "EdgeLM: Vulkan GPU backend disabled (CPU only) — pass -DEDGELM_VULKAN=ON to enable")
+endif()
 
 add_subdirectory(llama.cpp)
 

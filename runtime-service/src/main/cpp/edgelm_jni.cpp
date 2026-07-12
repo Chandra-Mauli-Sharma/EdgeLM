@@ -109,4 +109,9 @@ Java_ai_edgelm_service_NativeBridge_unloadModel(JNIEnv*, jobject, jlong handle) 
     edgelm::unload_model(reinterpret_cast<edgelm::Model*>(handle));
 }
 
+JNIEXPORT jstring JNICALL
+Java_ai_edgelm_service_NativeBridge_engineLabel(JNIEnv* env, jobject) {
+    return utf8_to_jstring(env, std::string(edgelm::engine_label()));
+}
+
 } // extern "C"

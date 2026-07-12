@@ -140,6 +140,21 @@ class EdgeLMService : Service() {
         modelHandle != 0L
     }
 
+    /** Ensure the active model is loaded WITHOUT forcing a reload (runs the one-time
+     *  CPU-vs-GPU probe on first load). Returns the engine label, or "" if no model. */
+    private fun ensureLoadedLocked(): String = scheduler.withEngine(AIScheduler.Priority.FOREGROUND) {
+        if (modelHandle == 0L) {
+            val path = currentModelPath()
+            modelHandle = if (path.isNotEmpty()) NativeBridge.loadModel(path) else 0L
+            Log.i(TAG, "ensureLoadedLocked($path) -> handle=$modelHandle")
+            if (modelHandle != 0L) {
+                requestsServed.set(0); lastTps = 0.0
+                updateNotification(); scheduleIdleUnload()
+            }
+        }
+        if (modelHandle != 0L) NativeBridge.engineLabel() else ""
+    }
+
     /** Unload the model to reclaim RAM; returns true if the runtime is now idle. */
     private fun unloadModelLocked(): Boolean = scheduler.withEngine(AIScheduler.Priority.FOREGROUND) {
         cancelIdleUnload()
@@ -378,6 +393,8 @@ class EdgeLMService : Service() {
         override fun reloadModel(): Boolean = loadModelLocked()
 
         override fun unloadModel(): Boolean = unloadModelLocked()
+
+        override fun prepareEngine(): String = this@EdgeLMService.ensureLoadedLocked()
     }
 
     override fun onDestroy() {
