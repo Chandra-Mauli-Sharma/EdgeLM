@@ -22,8 +22,8 @@ android {
         applicationId = "ai.edgelm.runtime"   // the SDK binds to this package
         minSdk = 26
         targetSdk = 35                         // Play requires API 35+ (Android 15)
-        versionCode = 12
-        versionName = "0.1.12"
+        versionCode = 13
+        versionName = "0.1.13"
 
         ndk {
             // arm64-v8a ONLY while the Vulkan backend is enabled: ggml's Vulkan code
