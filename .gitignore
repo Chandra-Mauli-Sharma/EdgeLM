@@ -21,3 +21,4 @@ docs/play/screenshots/Screenshot_*.png
 log.txt
 *.log
 tmp_apk/
+/docs/play/
