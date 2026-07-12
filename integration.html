@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Integration Guide — EdgeLM</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="docs/play/app-icon-512.png">
+<meta name="description" content="Add on-device AI to any Android app in a few lines. Integrate the EdgeLM shared runtime with the EdgeLM SDK — streaming chat, multi-turn sessions, and priority scheduling.">
+<meta property="og:title" content="Integration Guide — EdgeLM">
+<meta property="og:description" content="Add on-device AI to any Android app in a few lines with the EdgeLM SDK.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="EdgeLM">
+<meta property="og:url" content="https://chandra-mauli-sharma.github.io/EdgeLM/integration.html">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Integration Guide — EdgeLM">
+<meta name="twitter:description" content="Add on-device AI to any Android app in a few lines with the EdgeLM SDK.">
+<style>
+  :root{
+    --obsidian:#0B0E10; --carbon:#14181B; --slate:#1E262B; --card:#14181B;
+    --line:#252D33; --line2:#33413f;
+    --signal:#9BFF3C; --signal-deep:#7CEB1E; --volt:#2DE3FF;
+    --mist:#F5F7F6; --fog:#B9C4C9; --steel:#7C8A93; --gold:#F5D76E;
+    --radius:16px;
+    --sans:'Inter',-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --mono:'JetBrains Mono','SF Mono',ui-monospace,'Cascadia Code',Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:var(--obsidian);color:var(--mist);font-family:var(--sans);line-height:1.65;
+    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+  a{color:inherit;text-decoration:none}
+  html{scrollbar-width:thin;scrollbar-color:var(--line2) var(--obsidian)}
+  ::-webkit-scrollbar{width:12px;height:12px}
+  ::-webkit-scrollbar-track{background:var(--obsidian)}
+  ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:10px;border:3px solid var(--obsidian)}
+  ::-webkit-scrollbar-thumb:hover{background:var(--steel)}
+  .reveal{opacity:0;transform:translateY(22px);transition:opacity .6s ease,transform .6s ease}
+  .reveal.in{opacity:1;transform:none}
+  @media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+  .grad{background:linear-gradient(120deg,var(--signal),var(--volt));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);
+    background:rgba(11,14,16,.72);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;align-items:center;gap:20px;height:64px}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:19px;letter-spacing:-.5px}
+  .logo svg{width:30px;height:30px}
+  nav .links{margin-left:auto;display:flex;align-items:center;gap:26px}
+  nav .links a:not(.btn){color:var(--fog);font-size:14.5px}
+  nav .links a:not(.btn):hover{color:var(--mist)}
+  .btn{display:inline-flex;align-items:center;gap:8px;border-radius:12px;font-family:var(--mono);
+    font-weight:600;font-size:14px;padding:12px 20px;cursor:pointer;transition:.15s;white-space:nowrap}
+  .btn-p{background:var(--signal);color:var(--obsidian)}
+  .btn-p:hover{background:var(--signal-deep);transform:translateY(-1px)}
+  .btn-g{border:1px solid var(--line2);color:var(--mist)}
+  .btn-g:hover{border-color:var(--volt);background:var(--carbon)}
+  @media(max-width:720px){nav .links a:not(.navcta){display:none}}
+
+  header{position:relative;padding:88px 0 56px;overflow:hidden}
+  header::before{content:"";position:absolute;top:-260px;left:-160px;width:760px;height:760px;
+    background:radial-gradient(circle,rgba(155,255,60,.14),transparent 62%);pointer-events:none}
+  .herowrap{position:relative;max-width:760px}
+  .eyebrow{display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:2px;
+    color:var(--signal);border:1px solid var(--line2);background:var(--carbon);
+    border-radius:999px;padding:6px 14px;margin-bottom:22px}
+  h1{font-size:clamp(34px,5.4vw,56px);font-weight:800;letter-spacing:-2px;line-height:1.06}
+  header p.sub{color:var(--fog);font-size:18px;margin:20px 0 30px;max-width:600px}
+  .cta{display:flex;gap:14px;flex-wrap:wrap}
+  .note{color:var(--steel);font-size:13px;margin-top:16px}
+
+  section{padding:64px 0;border-top:1px solid var(--line)}
+  .kicker{font-family:var(--mono);font-size:12.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--volt);margin-bottom:12px}
+  h2{font-size:clamp(24px,3.4vw,34px);font-weight:800;letter-spacing:-1px;margin-bottom:14px}
+  h3.subhead{font-size:18px;font-weight:700;margin:36px 0 10px;color:var(--mist)}
+  .lead{color:var(--fog);font-size:16.5px;max-width:680px;margin-bottom:32px}
+  p.body{color:var(--fog);font-size:15.5px;max-width:680px;margin:14px 0}
+  p.body strong{color:var(--mist)}
+  code.inline{font-family:var(--mono);font-size:.92em;color:var(--gold);background:var(--carbon);
+    border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+
+  pre{background:#0E1214;border:1px solid var(--line);border-radius:16px;padding:22px;overflow-x:auto;margin:18px 0}
+  code{font-family:var(--mono);font-size:13.5px;line-height:1.7;color:var(--mist)}
+  .tok{color:var(--volt)} .str{color:var(--signal)} .com{color:var(--steel)} .fn{color:var(--gold)}
+
+  .steps{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+  @media(max-width:780px){.steps{grid-template-columns:1fr}}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px 24px}
+  .step .tag{display:inline-block;font-family:var(--mono);font-size:12px;color:var(--obsidian);
+    background:var(--signal);border-radius:8px;padding:3px 9px;font-weight:700;margin-bottom:12px}
+  .step h3{font-size:16.5px;font-weight:700;margin-bottom:6px}
+  .step p{color:var(--fog);font-size:14.5px}
+
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  @media(max-width:900px){.grid4{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:520px){.grid4{grid-template-columns:1fr}}
+  .feat{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;transition:.18s}
+  .feat:hover{border-color:#33413f;transform:translateY(-3px)}
+  .feat .n{font-family:var(--mono);font-size:12px;color:var(--volt);margin-bottom:8px}
+  .feat h3{font-size:16.5px;font-weight:700;margin-bottom:8px}
+  .feat p{color:var(--fog);font-size:14px}
+
+  ul.bullets{list-style:none;max-width:680px}
+  ul.bullets li{color:var(--fog);margin:12px 0;padding-left:22px;position:relative;font-size:15px}
+  ul.bullets li::before{content:"";position:absolute;left:2px;top:9px;width:7px;height:7px;border-radius:2px;background:var(--signal)}
+  ul.bullets li strong{color:var(--mist)}
+
+  .callout{background:var(--card);border:1px solid var(--line2);border-radius:16px;padding:20px 24px;margin:20px 0;
+    display:flex;gap:14px;align-items:flex-start}
+  .callout .ic{font-size:20px;line-height:1.4}
+  .callout p{color:var(--fog);font-size:14.5px;margin:0}
+  .callout p strong{color:var(--mist)}
+
+  .maint{background:var(--carbon);border:1px dashed var(--line2);border-radius:16px;padding:24px}
+  .maint .kicker{margin-bottom:8px}
+
+  .band{background:linear-gradient(120deg,rgba(155,255,60,.10),rgba(45,227,255,.08));
+    border:1px solid var(--line2);border-radius:24px;padding:48px 40px;text-align:center;margin:16px 0}
+  .band h2{margin-bottom:10px}
+  .band p{color:var(--fog);margin-bottom:26px}
+  .band .cta{justify-content:center}
+
+  footer{border-top:1px solid var(--line);padding:44px 0;color:var(--steel);font-size:14px}
+  footer .wrap{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  footer .links{margin-left:auto;display:flex;gap:22px}
+  footer a{color:var(--fog)} footer a:hover{color:var(--mist)}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="matcha" x1="80" y1="80" x2="440" y2="470" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#D4FF6E"/><stop offset=".6" stop-color="#7CEB1E"/><stop offset="1" stop-color="#2DE3FF"/>
+    </linearGradient>
+    <radialGradient id="gloss" cx="0.34" cy="0.28" r="0.5">
+      <stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+</svg>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="index.html#top">
+      <svg viewBox="0 0 512 512">
+        <path d="M256,80 C356,80 432,150 432,244 C432,300 404,340 404,372 C404,404 380,432 352,432 C330,432 320,414 300,414 C280,414 276,452 256,452 C236,452 232,414 212,414 C192,414 182,432 160,432 C132,432 108,404 108,372 C108,340 80,300 80,244 C80,150 156,80 256,80 Z" fill="url(#matcha)"/>
+        <ellipse cx="196" cy="176" rx="104" ry="60" fill="url(#gloss)"/><circle cx="330" cy="250" r="22" fill="#0B0E10"/>
+      </svg>
+      <span>Edge<span class="grad">LM</span></span>
+    </a>
+    <div class="links">
+      <a href="#setup">Setup</a>
+      <a href="#runtime">Runtime</a>
+      <a href="#stream">Streaming</a>
+      <a href="#lifecycle">Lifecycle</a>
+      <a class="navcta btn btn-g" href="https://github.com/Chandra-Mauli-Sharma/EdgeLM/tree/main/samples/hello-edgelm" target="_blank" rel="noopener">Sample app</a>
+    </div>
+  </div>
+</nav>
+
+<header id="top">
+  <div class="wrap">
+    <div class="herowrap">
+      <span class="eyebrow">FOR DEVELOPERS</span>
+      <h1>Integrate EdgeLM in <span class="grad">a few lines</span>.</h1>
+      <p class="sub">Your app calls the shared EdgeLM runtime — a separate app the user installs once from
+      Google Play. You never ship or manage model weights, and the model stays resident in memory shared
+      across every EdgeLM-powered app.</p>
+      <div class="cta">
+        <a class="btn btn-p" href="#setup">Add the dependency ↓</a>
+        <a class="btn btn-g" href="https://github.com/Chandra-Mauli-Sharma/EdgeLM/tree/main/samples/hello-edgelm" target="_blank" rel="noopener">View sample app →</a>
+      </div>
+      <p class="note">minSdk 26 · tiny client SDK (Binder + coroutines) · no manifest changes needed</p>
+    </div>
+  </div>
+</header>
+
+<section id="setup">
+  <div class="wrap">
+    <div class="kicker">1 · ADD THE DEPENDENCY</div>
+    <h2>Pull the SDK from JitPack.</h2>
+    <p class="lead">In <code class="inline">settings.gradle.kts</code> (or your root
+    <code class="inline">build.gradle</code>), add the JitPack repo:</p>
+
+    <pre><code><span class="fn">dependencyResolutionManagement</span> {
+    repositories {
+        <span class="fn">google</span>()
+        <span class="fn">mavenCentral</span>()
+        <span class="fn">maven</span> { url = <span class="fn">uri</span>(<span class="str">"https://jitpack.io"</span>) }
+    }
+}</code></pre>
+
+    <p class="body">Then in your app module's <code class="inline">build.gradle.kts</code>:</p>
+
+    <pre><code>dependencies {
+    <span class="fn">implementation</span>(<span class="str">"com.github.Chandra-Mauli-Sharma.EdgeLM:sdk:0.1.0"</span>)
+}</code></pre>
+
+    <div class="callout">
+      <span class="ic">✅</span>
+      <p>The <code class="inline">:contract</code> module (AIDL/Binder types) comes in transitively.
+      <strong>No manifest changes needed</strong> — the SDK declares the
+      <code class="inline">ai.edgelm.permission.USE_RUNTIME</code> permission and the package
+      <code class="inline">&lt;queries&gt;</code> for you via manifest merge.</p>
+    </div>
+  </div>
+</section>
+
+<section id="runtime">
+  <div class="wrap">
+    <div class="kicker">2 · MAKE SURE THE RUNTIME IS INSTALLED</div>
+    <h2>Check up front, prompt if missing.</h2>
+    <p class="lead">EdgeLM is a shared runtime, so the <strong style="color:var(--mist)">EdgeLM Runtime app must
+    be installed</strong> — the user gets it once from Play, and every EdgeLM app then shares it.</p>
+
+    <pre><code><span class="tok">when</span> (EdgeLM.<span class="fn">status</span>(context)) {
+    EdgeLM.Status.NOT_INSTALLED -&gt; EdgeLM.<span class="fn">promptInstall</span>(context)  <span class="com">// sends user to Play</span>
+    EdgeLM.Status.AVAILABLE     -&gt; EdgeLM.<span class="fn">initialize</span>(context)     <span class="com">// bind the service</span>
+}</code></pre>
+
+    <div class="steps">
+      <div class="step"><div class="tag">NOT_INSTALLED</div><h3>promptInstall(context)</h3><p>Opens the runtime's Play page (<code class="inline">market://</code> with a web fallback) so the user can install it.</p></div>
+      <div class="step"><div class="tag">AVAILABLE</div><h3>initialize(context)</h3><p>Binds to the runtime service. Idempotent — safe to call more than once, e.g. from <code class="inline">Application.onCreate</code>.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="stream">
+  <div class="wrap">
+    <div class="kicker">3 · STREAM A COMPLETION</div>
+    <h2>An OpenAI-style, coroutine-native API.</h2>
+    <p class="lead"><code class="inline">chat(...)</code> returns a <strong style="color:var(--mist)">cold
+    <code class="inline">Flow&lt;String&gt;</code></strong> of tokens — work starts on <code class="inline">collect</code>,
+    and cancelling the collector's scope cancels the on-device decode.</p>
+
+    <pre><code>EdgeLM.<span class="fn">initialize</span>(context)          <span class="com">// once (e.g. Application.onCreate)</span>
+
+lifecycleScope.<span class="fn">launch</span> {
+    <span class="tok">try</span> {
+        EdgeLM.<span class="fn">chat</span>(
+            model = <span class="str">"default"</span>,       <span class="com">// Phase 0 serves the active model; value is advisory</span>
+            prompt = <span class="str">"Explain on-device AI in one line"</span>,
+            sessionId = <span class="str">"chat-1"</span>,    <span class="com">// stable id = multi-turn; "" = stateless one-shot</span>
+            priority = EdgeLM.INTERACTIVE,
+        ).<span class="fn">collect</span> { token -&gt;
+            <span class="fn">appendToUi</span>(token)        <span class="com">// tokens stream in</span>
+        }
+    } <span class="tok">catch</span> (e: EdgeLMUnavailableException) {
+        <span class="com">// runtime missing or not responding — fall back / prompt install</span>
+    }
+}</code></pre>
+
+    <h3 class="subhead">Multi-turn conversations</h3>
+    <p class="body">Pass a stable <code class="inline">sessionId</code>. Prior turns stay in the runtime's
+    warm KV cache and aren't re-prefilled, so follow-ups are fast:</p>
+
+    <pre><code>EdgeLM.<span class="fn">chat</span>(<span class="str">"default"</span>, <span class="str">"My name is Ada."</span>, sessionId = <span class="str">"s1"</span>).<span class="fn">collect</span> { … }
+EdgeLM.<span class="fn">chat</span>(<span class="str">"default"</span>, <span class="str">"What's my name?"</span>, sessionId = <span class="str">"s1"</span>).<span class="fn">collect</span> { … }  <span class="com">// remembers</span></code></pre>
+
+    <h3 class="subhead">Priority</h3>
+    <p class="body">Requests are admitted to the single shared engine by priority, with aging:</p>
+
+    <div class="grid4">
+      <div class="feat"><div class="n">3 · FOREGROUND</div><h3>User is watching</h3><p>The user is staring at the result right now.</p></div>
+      <div class="feat"><div class="n">2 · INTERACTIVE</div><h3>Default</h3><p>The standard priority for normal chat traffic.</p></div>
+      <div class="feat"><div class="n">1 · BATCH</div><h3>Batch work</h3><p>Lower urgency, processed as capacity allows.</p></div>
+      <div class="feat"><div class="n">0 · BACKGROUND</div><h3>Best-effort</h3><p>Background work with the lowest scheduling priority.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="lifecycle">
+  <div class="wrap">
+    <div class="kicker">4 · LIFECYCLE</div>
+    <h2>Three calls, start to finish.</h2>
+    <div class="steps">
+      <div class="step"><h3>EdgeLM.initialize(context)</h3><p>Idempotent; binds the runtime service.</p></div>
+      <div class="step"><h3>EdgeLM.warmModels()</h3><p><code class="inline">suspend</code>, returns the models currently loaded — useful for diagnostics.</p></div>
+    </div>
+    <div class="steps" style="margin-top:18px">
+      <div class="step" style="grid-column:1/-1"><h3>EdgeLM.shutdown()</h3><p>Unbind when you're done. Optional — the runtime stays alive for other apps regardless.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="notes">
+  <div class="wrap">
+    <div class="kicker">NOTES</div>
+    <h2>Good to know.</h2>
+    <ul class="bullets">
+      <li><strong>The user picks/downloads models in the EdgeLM Runtime app</strong>, not in yours. Your app just requests generations; whatever model is active serves them.</li>
+      <li>Everything runs <strong>on-device</strong> — prompts and responses never leave the phone.</li>
+      <li>If <code class="inline">status()</code> is <code class="inline">NOT_INSTALLED</code>, always give the user a path (<code class="inline">promptInstall</code>) rather than failing silently.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="maintainers">
+  <div class="wrap">
+    <div class="maint">
+      <div class="kicker">PUBLISHING NOTE · MAINTAINERS</div>
+      <p class="body" style="margin-top:0">JitPack builds from a git tag. To release a version, tag it to
+      match the SDK version (the module publishes <code class="inline">version = "0.1.0"</code>):</p>
+      <pre style="margin-bottom:0"><code>git tag 0.1.0 &amp;&amp; git push origin 0.1.0</code></pre>
+      <p class="body">Then the coordinates in <a href="#setup" style="color:var(--volt)">Step 1</a> resolve.
+      Build log: <a href="https://jitpack.io/#Chandra-Mauli-Sharma/EdgeLM" target="_blank" rel="noopener" style="color:var(--volt)">jitpack.io/#Chandra-Mauli-Sharma/EdgeLM</a></p>
+    </div>
+  </div>
+</section>
+
+<section id="get">
+  <div class="wrap">
+    <div class="band">
+      <h2>In a hurry?</h2>
+      <p>There's a complete, runnable sample — clone it, <code class="inline">./gradlew installDebug</code>, and you have a working streaming chat app to copy from.</p>
+      <div class="cta">
+        <a class="btn btn-p" href="https://github.com/Chandra-Mauli-Sharma/EdgeLM/tree/main/samples/hello-edgelm" target="_blank" rel="noopener">Get hello-edgelm →</a>
+        <a class="btn btn-g" href="index.html#top">← Back to EdgeLM</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 EdgeLM · On-device. Private. Offline.</span>
+    <span class="links">
+      <a href="index.html#features">Features</a>
+      <a href="index.html#developers">Developers</a>
+      <a href="privacy.html">Privacy</a>
+      <a href="mailto:chandramaulisharma26@gmail.com">Contact</a>
+    </span>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) return;
+    var els = document.querySelectorAll('section .wrap, .step, .feat, pre, .callout, .maint, .band');
+    els.forEach(function (el) { el.classList.add('reveal'); });
+    if (!('IntersectionObserver' in window)) {
+      els.forEach(function (el) { el.classList.add('in'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+    document.querySelectorAll('.steps, .grid4').forEach(function (row) {
+      Array.prototype.forEach.call(row.children, function (child, i) {
+        child.style.transitionDelay = (i * 60) + 'ms';
+      });
+    });
+    els.forEach(function (el) { io.observe(el); });
+  })();
+</script>
+
+</body>
+</html>
