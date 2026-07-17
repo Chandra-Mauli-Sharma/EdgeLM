@@ -77,7 +77,12 @@ class EdgeLMService : Service() {
         return ModelCatalog.byId(id)?.name ?: id
     }
 
-    @Volatile private var modelHandle: Long = 0L
+    // The pluggable inference backend (docs/ENGINE-ABSTRACTION.md), re-resolved per load via
+    // EngineRegistry (Phase C routing). llama.cpp CPU today; LiteRT-LM GPU/NPU is wired but
+    // disabled until Phase B. The service never calls NativeBridge directly — all through this seam.
+    @Volatile private var engine: InferenceEngine = EngineRegistry.fallback()
+    // The one live model/session, or null when nothing is resident. Opaque to the service.
+    @Volatile private var session: InferenceEngine.Session? = null
     private val requestIds = AtomicLong(1)
     private val cancelled = ConcurrentHashMap<Long, AtomicBoolean>()
 
@@ -93,6 +98,7 @@ class EdgeLMService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        EngineRegistry.init(applicationContext)   // give the LiteRT engine a cache-dir Context
         createNotificationChannel()
         // Go foreground immediately so there's a visible "EdgeLM running" chip and
         // the OS treats the shared runtime as in-use (survives OEM freezers).
@@ -128,43 +134,78 @@ class EdgeLMService : Service() {
 
     // ---- Model load / unload (serialized on the engine) -----------------------
 
+    /** Choose the inference engine for the active model + this device (Phase C routing).
+     *  Resolves to llama.cpp until the LiteRT-LM backend is enabled (see EngineRegistry). */
+    private fun resolveEngine(): InferenceEngine {
+        val spec = ModelStore.activeId(this)?.let { ModelCatalog.byId(it) }
+        return EngineRegistry.select(spec, DeviceProfile.current())
+    }
+
     /** (Re)load the active model; returns true if a model is resident afterward. */
     private fun loadModelLocked(): Boolean = scheduler.withEngine(AIScheduler.Priority.FOREGROUND) {
-        if (modelHandle != 0L) { NativeBridge.unloadModel(modelHandle); modelHandle = 0L }
+        session?.let { engine.unload(it); session = null }   // unload with the OLD engine first
         val path = currentModelPath()
-        modelHandle = if (path.isNotEmpty()) NativeBridge.loadModel(path) else 0L
-        Log.i(TAG, "loadModelLocked($path) -> handle=$modelHandle")
+        engine = resolveEngine()
+        session = if (path.isNotEmpty()) engine.load(path) else null
+        Log.i(TAG, "loadModelLocked($path) -> loaded=${session != null} [${engine.id}]")
+        attachDraftLocked()
         requestsServed.set(0); lastTps = 0.0   // new model => fresh counters
         updateNotification()
         scheduleIdleUnload()   // a manually-loaded model still auto-retires when idle
-        modelHandle != 0L
+        session != null
+    }
+
+    /** If the active model declares a same-tokenizer draft (see ModelSpec.draftId) and that
+     *  draft is installed, attach it for speculative decoding. No-op otherwise → the runner
+     *  simply falls back to single-model decode. Call right after a successful loadModel.
+     *
+     *  GPU-ONLY: speculative decoding only pays off when the target's batched verification of
+     *  N draft tokens is ~free, which holds on a bandwidth-bound GPU but NOT on CPU — there a
+     *  batch of N costs ~N× the matmul work, so draft overhead + non-free verify makes it a net
+     *  LOSS (measured ~40-55% slower on a 3B+1B pair, Mali-class SoC, CPU decode). So we only
+     *  attach the draft when the chosen backend is GPU; the CPU path stays plain single-model. */
+    private fun attachDraftLocked() {
+        val s = session ?: return
+        if (!engine.label(s).startsWith("GPU")) {
+            Log.i(TAG, "draft skipped — CPU backend (speculative decoding is a net loss on CPU)"); return
+        }
+        val id = ModelStore.activeId(this) ?: return
+        val draftId = ModelCatalog.byId(id)?.draftId ?: return
+        if (draftId == id) return
+        if (!ModelStore.isInstalled(this, draftId)) {
+            Log.i(TAG, "draft '$draftId' not installed — single-model decode"); return
+        }
+        val ok = engine.attachDraft(s, ModelStore.fileFor(this, draftId).absolutePath)
+        Log.i(TAG, "attachDraft('$draftId') -> $ok (speculative decoding ${if (ok) "ON" else "off"})")
     }
 
     /** Ensure the active model is loaded WITHOUT forcing a reload (runs the one-time
      *  CPU-vs-GPU probe on first load). Returns the engine label, or "" if no model. */
     private fun ensureLoadedLocked(): String = scheduler.withEngine(AIScheduler.Priority.FOREGROUND) {
-        if (modelHandle == 0L) {
+        if (session == null) {
             val path = currentModelPath()
-            modelHandle = if (path.isNotEmpty()) NativeBridge.loadModel(path) else 0L
-            Log.i(TAG, "ensureLoadedLocked($path) -> handle=$modelHandle")
-            if (modelHandle != 0L) {
+            engine = resolveEngine()
+            session = if (path.isNotEmpty()) engine.load(path) else null
+            Log.i(TAG, "ensureLoadedLocked($path) -> loaded=${session != null} [${engine.id}]")
+            if (session != null) {
+                attachDraftLocked()
                 requestsServed.set(0); lastTps = 0.0
                 updateNotification(); scheduleIdleUnload()
             }
         }
-        if (modelHandle != 0L) NativeBridge.engineLabel() else ""
+        session?.let { engine.label(it) } ?: ""
     }
 
     /** Unload the model to reclaim RAM; returns true if the runtime is now idle. */
     private fun unloadModelLocked(): Boolean = scheduler.withEngine(AIScheduler.Priority.FOREGROUND) {
         cancelIdleUnload()
-        if (modelHandle != 0L) {
-            NativeBridge.unloadModel(modelHandle); modelHandle = 0L
+        session?.let {
+            engine.unload(it); session = null
             requestsServed.set(0); lastTps = 0.0   // fresh slate for the next session
             Log.i(TAG, "unloadModelLocked -> freed model, runtime idle")
         }
         updateNotification()
-        modelHandle == 0L
+        session == null
     }
 
     // ---- Notification ---------------------------------------------------------
@@ -184,7 +225,7 @@ class EdgeLMService : Service() {
     private fun statusLine(): String = when {
         activeCount.get() > 0 ->
             "Generating for ${activeApp.ifBlank { "an app" }}…"
-        modelHandle != 0L -> buildString {
+        session != null -> buildString {
             append("Ready · ${activeModelName()}")
             val served = requestsServed.get()
             if (served > 0) append(" · $served served")
@@ -220,7 +261,7 @@ class EdgeLMService : Service() {
         // always dismissible. Hidden mid-generation to avoid a mid-decode tap.
         if (activeCount.get() == 0) {
             when {
-                modelHandle != 0L ->
+                session != null ->
                     b.addAction(serviceAction("Free memory", ACTION_UNLOAD))
                 currentModelPath().isNotEmpty() ->
                     b.addAction(serviceAction("Load model", ACTION_LOAD))
@@ -282,23 +323,25 @@ class EdgeLMService : Service() {
         // priority waiter next (with aging). One generation runs at a time.
         cancelIdleUnload()     // busy again — don't free the model out from under us
         // Lazily (re)load if the model was auto-unloaded while idle, or never loaded.
-        if (modelHandle == 0L) {
+        if (session == null) {
             val path = currentModelPath()
             if (path.isEmpty()) return@withEngine EdgeLMHttpServer.GenStats(0, 0)
-            modelHandle = NativeBridge.loadModel(path)
-            Log.i(TAG, "lazy reload on request -> handle=$modelHandle")
-            if (modelHandle == 0L) return@withEngine EdgeLMHttpServer.GenStats(0, 0)
+            engine = resolveEngine()
+            session = engine.load(path)
+            Log.i(TAG, "lazy reload on request -> loaded=${session != null} [${engine.id}]")
+            if (session == null) return@withEngine EdgeLMHttpServer.GenStats(0, 0)
+            attachDraftLocked()
         }
         activeApp = caller
         activeCount.incrementAndGet()
         updateNotification()   // -> "Generating for <app>…"
         try {
             val started = System.currentTimeMillis()
-            val sink = object : NativeBridge.TokenSink {
+            val sink = object : InferenceEngine.TokenSink {
                 override fun onChunk(text: String) = onToken(text)
                 override fun isCancelled(): Boolean = isCancelled()
             }
-            val n = NativeBridge.generate(modelHandle, sessionId, prompt, sink)
+            val n = engine.generate(session!!, sessionId, prompt, sink)
             val elapsed = System.currentTimeMillis() - started
             if (elapsed > 0 && n > 0) lastTps = n * 1000.0 / elapsed
             EdgeLMHttpServer.GenStats(n, elapsed)
@@ -314,9 +357,9 @@ class EdgeLMService : Service() {
 
     private fun scheduleIdleUnload() {
         idleTask?.cancel(false)
-        if (modelHandle == 0L) return
+        if (session == null) return
         idleTask = idleExecutor.schedule({
-            if (activeCount.get() == 0 && modelHandle != 0L) {
+            if (activeCount.get() == 0 && session != null) {
                 Log.i(TAG, "idle ${IDLE_UNLOAD_MS / 60000}m -> auto-freeing model")
                 unloadModelLocked()
             }
@@ -328,7 +371,7 @@ class EdgeLMService : Service() {
     }
 
     private fun warmModels(): List<String> =
-        if (modelHandle != 0L) listOf(activeModelName()) else emptyList()
+        if (session != null) listOf(activeModelName()) else emptyList()
 
     private fun startHttpShim() {
         http = EdgeLMHttpServer(
@@ -360,7 +403,7 @@ class EdgeLMService : Service() {
             val caller = appLabel(Binder.getCallingUid())
 
             worker.execute {
-                if (modelHandle == 0L && currentModelPath().isEmpty()) {
+                if (session == null && currentModelPath().isEmpty()) {
                     callback.onError("no model installed — open the EdgeLM Runtime app to download one")
                     cancelled.remove(id); return@execute
                 }
@@ -385,7 +428,7 @@ class EdgeLMService : Service() {
 
         override fun cancel(requestId: Long) {
             cancelled[requestId]?.set(true)
-            if (modelHandle != 0L) NativeBridge.cancel(modelHandle)
+            session?.let { engine.cancel(it) }
         }
 
         override fun warmModels(): Array<String> = this@EdgeLMService.warmModels().toTypedArray()
@@ -401,7 +444,7 @@ class EdgeLMService : Service() {
         runCatching { http?.stop() }
         cancelIdleUnload(); idleExecutor.shutdownNow()
         worker.shutdownNow()
-        if (modelHandle != 0L) NativeBridge.unloadModel(modelHandle)
+        session?.let { engine.unload(it) }
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }

@@ -274,16 +274,18 @@ class RuntimeActivity : ComponentActivity() {
     private fun renderModels() {
         listContainer.removeAllViews()
         rows.clear()
+        // Hide LiteRT-only models on devices where the GPU backend was probed and failed.
+        val visible = ModelCatalog.visibleModels(this)
         if (simpleMode) {
             val recommended = ModelCatalog.recommendedFor(deviceRamMb)
             val ctx = this
             val shown = buildList {
                 add(recommended)
                 if (showAllSimple) {
-                    ModelCatalog.models.forEach { if (it.id != recommended.id) add(it) }
+                    visible.forEach { if (it.id != recommended.id) add(it) }
                 } else {
                     // keep any already-installed models visible so they can switch
-                    ModelCatalog.models.forEach {
+                    visible.forEach {
                         if (it.id != recommended.id && ModelStore.isInstalled(ctx, it.id)) add(it)
                     }
                 }
@@ -297,7 +299,7 @@ class RuntimeActivity : ComponentActivity() {
                 })
             }
         } else {
-            ModelCatalog.models.forEach { listContainer.addView(modelCard(it, simple = false, recommended = false)) }
+            visible.forEach { listContainer.addView(modelCard(it, simple = false, recommended = false)) }
         }
     }
 
@@ -412,7 +414,12 @@ class RuntimeActivity : ComponentActivity() {
                     engineLabelView.text = "Engine: $label"
                     engineLabelView.visibility = View.VISIBLE
                 } else {
-                    engineLabelView.visibility = View.GONE
+                    // Engine failed to load (e.g. LiteRT GPU init failed → its verdict is now
+                    // cached as unusable). Surface it and refresh the picker so the unrunnable
+                    // model drops out (ModelCatalog.visibleModels), guiding the user to another.
+                    engineLabelView.text = "This model couldn't start on your device — pick another."
+                    engineLabelView.visibility = View.VISIBLE
+                    renderModels()
                 }
             }
         }.start()

@@ -114,4 +114,14 @@ Java_ai_edgelm_service_NativeBridge_engineLabel(JNIEnv* env, jobject) {
     return utf8_to_jstring(env, std::string(edgelm::engine_label()));
 }
 
+JNIEXPORT jboolean JNICALL
+Java_ai_edgelm_service_NativeBridge_attachDraft(JNIEnv* env, jobject, jlong handle, jstring jpath) {
+    auto* m = reinterpret_cast<edgelm::Model*>(handle);
+    if (!m) return JNI_FALSE;
+    const char* p = env->GetStringUTFChars(jpath, nullptr);
+    const bool ok = edgelm::attach_draft(m, p ? p : "");
+    if (p) env->ReleaseStringUTFChars(jpath, p);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
 } // extern "C"

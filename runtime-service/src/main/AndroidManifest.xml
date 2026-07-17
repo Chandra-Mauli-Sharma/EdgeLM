@@ -37,6 +37,11 @@
         android:label="EdgeLM Runtime"
         android:allowBackup="false">
 
+        <!-- LiteRT-LM GPU (OpenCL) backend needs these vendor libs at runtime (Phase B).
+             required=false so devices without them still install and run on the CPU engine. -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+
         <!--
           The shared runtime. Runs in its OWN process (:core) so that model
           weights mmap'd here are shared across every bound app via the OS

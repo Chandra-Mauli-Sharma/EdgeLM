@@ -28,6 +28,10 @@ int    generate(Model* m, const std::string& sessionId, const std::string& promp
 void   request_cancel(Model* m);
 void   unload_model(Model* m);
 
+// Attach a small, same-tokenizer draft model to enable speculative decoding on this target.
+// Returns true if the draft loaded. Safe to skip — generate() falls back to single-model.
+bool   attach_draft(Model* m, const char* draftPath);
+
 // Short label for the backend chosen at the most recent load_model(), for UI display:
 // "CPU", or "GPU · <device>" (e.g. "GPU · Mali-G615 MC6"). Empty before any load.
 const char* engine_label();
