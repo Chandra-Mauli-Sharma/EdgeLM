@@ -31,6 +31,10 @@ object NativeBridge {
     /** Label of the backend chosen at the last [loadModel] ("CPU" / "GPU · <device>"). */
     external fun engineLabel(): String
 
+    /** Attach a small same-tokenizer draft model to [handle] for speculative decoding.
+     *  Returns true if the draft loaded. Call after [loadModel], before generating. */
+    external fun attachDraft(handle: Long, draftPath: String): Boolean
+
     /** Called from C++ to deliver tokens and check for cancellation. */
     interface TokenSink {
         fun onChunk(text: String)

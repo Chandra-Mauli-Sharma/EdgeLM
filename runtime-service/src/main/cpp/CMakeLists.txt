@@ -30,6 +30,13 @@ set(CMAKE_CXX_FLAGS_DEBUG "-O3 -DNDEBUG ${EDGELM_ARCH_FLAGS}" CACHE STRING "" FO
 # cache override above is ignored by the sub-build. Must precede add_subdirectory.
 add_compile_options(-O3 ${EDGELM_ARCH_LIST})
 
+# ggml probes ARM features (dotprod/i8mm/fp16) with check_cxx_source_compiles, which uses
+# CMAKE_REQUIRED_FLAGS — NOT add_compile_options. Under GGML_NATIVE=OFF those probes run
+# without -march and FAIL, so ggml skips the matching CPU + KleidiAI microkernels while the
+# code (built with our forced -march) still references them → undefined kai_* symbols at
+# link. Feed the arch flags into the probes so they succeed and the kernels get compiled.
+set(CMAKE_REQUIRED_FLAGS "${EDGELM_ARCH_FLAGS}")
+
 # --- vendored llama.cpp ------------------------------------------------------
 # Build llama/ggml as STATIC libs so they link into libedgelm.so — otherwise
 # System.loadLibrary("edgelm") can't resolve the transitive libllama.so /
@@ -44,6 +51,21 @@ set(LLAMA_CURL           OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP          OFF CACHE BOOL "" FORCE)  # NDK has no libgomp by default
 set(GGML_LLAMAFILE       OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE          OFF CACHE BOOL "" FORCE)  # cross-compiling: no -march=native
+
+# ARM KleidiAI microkernels: TRIED and MEASURED on-device — no benefit here, so left OFF.
+#
+# On Q4_0 + our -march=+i8mm build, ggml already repacks Q4_0 into the i8mm layout at load and
+# dispatches its tuned GEMM at runtime, so KleidiAI is largely redundant. And decode is
+# memory-bandwidth-bound, so a faster matmul kernel can't move it: measured 3B decode was
+# 8.0 tok/s WITH KleidiAI vs ~7.5-8.5 without (~0% change; prefill within noise). Not worth
+# KleidiAI's costs — a network FetchContent at configure time, longer builds, a larger .so.
+#
+# If ever revisited (e.g. a non-Q4_0 or prefill-bound path where the kernel win matters):
+# enabling it requires GGML_CPU_ARM_ARCH="armv8.2-a+dotprod+i8mm+fp16" so ggml's ARCH_FLAGS
+# carry the +dotprod+i8mm tags — otherwise (GGML_NATIVE=OFF + -march via add_compile_options,
+# not CMAKE_C_FLAGS) ggml skips the kai_* i8mm/dotprod ukernels while kernels.cpp still
+# references them → undefined symbols at link. KleidiAI is aarch64-only. See git history.
+set(GGML_CPU_KLEIDIAI OFF CACHE BOOL "" FORCE)
 
 # --- optional Vulkan GPU backend (PHASE1-VULKAN-GPU.md) ----------------------
 # OFF by default so the CPU build NEVER needs the host Vulkan SDK. ggml's Vulkan

@@ -22,16 +22,15 @@ android {
         applicationId = "ai.edgelm.runtime"   // the SDK binds to this package
         minSdk = 26
         targetSdk = 35                         // Play requires API 35+ (Android 15)
-        versionCode = 13
-        versionName = "0.1.13"
+        versionCode = 15                       // set to (last uploaded to Play) + 1 before shipping
+        versionName = "0.1.15"
 
         ndk {
-            // arm64-v8a ONLY while the Vulkan backend is enabled: ggml's Vulkan code
-            // doesn't compile for 32-bit ARM (strongly-typed Vulkan-Hpp handles break the
-            // casts), and every Vulkan-capable device is 64-bit. clear() first so a stale
-            // armeabi-v7a can't linger. Restore "armeabi-v7a" for the CPU-only release.
-            abiFilters.clear()
-            abiFilters.add("arm64-v8a")
+            // arm64-v8a is the primary target; armeabi-v7a adds legacy 32-bit reach
+            // (much slower — small models only). Keep BOTH for the CPU-only release so we
+            // don't drop 32-bit devices on Play. (Restrict to arm64-v8a only if you re-enable
+            // the Vulkan backend, which doesn't compile for 32-bit ARM.)
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
         externalNativeBuild {
             cmake {
@@ -40,16 +39,16 @@ android {
                 // to ship (or to misalign for 16 KB devices). Switch back to
                 // c++_shared only if you add a second .so that must share the STL.
                 arguments += "-DANDROID_STL=c++_static"
-                // GPU acceleration (PHASE1-VULKAN-GPU.md): requires the LunarG Vulkan
-                // SDK so `glslc` is on PATH at build time. Comment this out again if you
-                // build on a machine without the Vulkan toolchain.
-                arguments += "-DEDGELM_VULKAN=ON"
-                // Vulkan 1.1 entry points (vkGetPhysicalDeviceFeatures2, …) only appear in
-                // the NDK's libvulkan stub at API 28+, so link the NATIVE lib against
-                // android-28. Any device with usable Vulkan compute supports 1.1. Remove
-                // these two lines when you disable EDGELM_VULKAN for the CPU-only release.
-                arguments += "-DANDROID_PLATFORM=android-28"
-                arguments += "-DCMAKE_SYSTEM_VERSION=28"
+                // --- GPU (Vulkan) build — OFF for the Play release ---------------------
+                // Enabling these gives GPU offload but (a) needs the LunarG Vulkan SDK +
+                // MSVC on the build host, (b) drops armeabi-v7a (ggml Vulkan is 64-bit only),
+                // and (c) bloats the APK with the compute shaders. The engine auto-probe
+                // still picks CPU-vs-GPU correctly whenever this is on. To build a Vulkan
+                // APK (e.g. for Adreno testing), uncomment all three AND set abiFilters to
+                // arm64-v8a only above.
+                // arguments += "-DEDGELM_VULKAN=ON"
+                // arguments += "-DANDROID_PLATFORM=android-28"
+                // arguments += "-DCMAKE_SYSTEM_VERSION=28"
             }
         }
     }
@@ -105,4 +104,14 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.0")   // landing/status screen
     implementation("androidx.core:core-splashscreen:1.0.1")  // branded splash screen
     implementation("androidx.work:work-runtime-ktx:2.9.1")   // resilient model downloads
+
+    // --- LiteRT-LM (GPU) engine — shipped live in all builds. Gated at runtime by the SoC
+    // allowlist + learned GPU verdict + picker filter, so it's only ever offered on devices where
+    // it can run (Adreno). NOTE: this AAR bundles LiteRT's native libs and increases APK size —
+    // acceptable trade for shipping the GPU path; revisit a feature module if Play size limits bite.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:latest.release")
+
+    // Pure-JVM unit tests (engine routing / artifact selection — no device or native lib).
+    // Run with: ./gradlew :runtime-service:testDebugUnitTest
+    testImplementation("junit:junit:4.13.2")
 }

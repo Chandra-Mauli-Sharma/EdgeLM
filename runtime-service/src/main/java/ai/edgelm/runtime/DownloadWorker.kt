@@ -14,10 +14,13 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import ai.edgelm.service.DeviceProfile
 import ai.edgelm.service.EdgeLMService
+import ai.edgelm.service.EngineRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -45,20 +48,42 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val id = inputData.getString(KEY_ID) ?: return@withContext Result.failure()
         val spec = ModelCatalog.byId(id) ?: return@withContext Result.failure()
 
+        // Pick the artifact the SAME way the engine will be picked to run it: the router
+        // resolves this device's engine, and that engine names the URL + format to fetch.
+        // A GPU-capable device with a .litertlm model fetches that; otherwise the GGUF.
+        EngineRegistry.init(applicationContext)   // LiteRT engine needs a Context
+        val engine = EngineRegistry.select(spec, DeviceProfile.current())
+        val artifact = engine.artifactFor(spec) ?: EngineRegistry.fallback().artifactFor(spec)
+            ?: return@withContext Result.failure(workDataOf(KEY_ID to id, KEY_ERROR to "no downloadable artifact for this device"))
+
         createChannel()
         setForeground(foregroundInfo(spec, -1, 0, 0))
 
-        val dest = ModelStore.fileFor(applicationContext, spec.id)
-        val tmp = File(dest.parentFile, "${spec.id}.gguf.part")
+        val dest = ModelStore.fileFor(applicationContext, spec.id, artifact.format)
+        val tmp = File(dest.parentFile, "${spec.id}.${artifact.format}.part")
         try {
-            val c = (URL(spec.url).openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = true; connectTimeout = 15000; readTimeout = 30000
-                setRequestProperty("User-Agent", "EdgeLM/1.0"); connect()
+            // Resume: if a partial file exists, ask the server (HTTP Range) to continue
+            // from where we stopped instead of restarting a multi-hundred-MB download.
+            val have = if (tmp.exists()) tmp.length() else 0L
+            val c = (URL(artifact.url).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true
+                connectTimeout = 30000; readTimeout = 90000   // generous — mobile + large files
+                setRequestProperty("User-Agent", "EdgeLM/1.0")
+                if (have > 0) setRequestProperty("Range", "bytes=$have-")
+                connect()
             }
-            val total = c.contentLengthLong
+            val code = c.responseCode
+            // Genuine client errors (bad URL / gone) won't fix themselves — fail fast.
+            if (code in 400..499 && code != 408 && code != 429) {
+                tmp.delete()
+                return@withContext Result.failure(workDataOf(KEY_ID to id, KEY_ERROR to "server error $code"))
+            }
+            val resuming = have > 0 && code == HttpURLConnection.HTTP_PARTIAL   // 206
+            var read = if (resuming) have else 0L
+            val total = read + c.contentLengthLong
             c.inputStream.use { input ->
-                tmp.outputStream().use { out ->
-                    val buf = ByteArray(1 shl 16); var read = 0L; var lastPct = -1; var n: Int
+                FileOutputStream(tmp, /*append=*/resuming).use { out ->
+                    val buf = ByteArray(1 shl 16); var lastPct = -1; var n: Int
                     while (input.read(buf).also { n = it } >= 0) {
                         if (isStopped) { tmp.delete(); return@withContext Result.failure() } // cancelled
                         out.write(buf, 0, n); read += n
@@ -81,9 +106,13 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
             }
             Result.success(workDataOf(KEY_ID to id))
         } catch (t: Throwable) {
-            tmp.delete()
-            if (isStopped) Result.failure()   // cancellation
-            else Result.failure(workDataOf(KEY_ID to id, KEY_ERROR to (t.message ?: "download failed")))
+            when {
+                isStopped -> { tmp.delete(); Result.failure() }        // user cancelled
+                // Transient (timeout/stall/dropped connection): keep the .part and let
+                // WorkManager retry with backoff — the next run resumes via Range.
+                runAttemptCount < 6 -> Result.retry()
+                else -> { tmp.delete(); Result.failure(workDataOf(KEY_ID to id, KEY_ERROR to (t.message ?: "download failed"))) }
+            }
         }
     }
 

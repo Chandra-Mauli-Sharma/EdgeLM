@@ -29,13 +29,17 @@ namespace edgelm {
 struct Model {
     llama_model*   model     = nullptr;
     llama_context* ctx       = nullptr;   // created once, kept WARM, reused per call
-    int            n_ctx     = 2048;
+    int            n_ctx     = 1024;   // smaller KV = less RAM + cheaper attention; fine for chat
     int            n_threads = 4;
     volatile bool  cancel    = false;
     std::string    active_session;        // conversation whose KV is currently resident
     int            session_past = 0;      // KV length for that conversation
     int            system_len   = 0;      // cached system-prefix length
     bool           system_ready = false;
+    // Optional small, same-tokenizer draft model for speculative decoding. When present,
+    // generate() routes through generate_speculative(). Both KVs are kept in lockstep.
+    llama_model*   draft_model = nullptr;
+    llama_context* draft_ctx   = nullptr;
 };
 
 static std::once_flag g_backend_once;
@@ -248,11 +252,190 @@ static void ensure_system(Model* m) {
     if (llama_decode(ctx, b) == 0) { m->system_len = n; m->system_ready = true;
         LOGI("system prefix cached: %d tok", n); }
     else LOGE("system prefill failed");
+    // Mirror the same system prefix into the draft so both KVs start aligned at system_len.
+    if (m->draft_ctx) {
+        llama_memory_clear(llama_get_memory(m->draft_ctx), /*data=*/true);
+        llama_batch db = llama_batch_get_one(toks.data(), n);
+        if (llama_decode(m->draft_ctx, db)) LOGE("draft system prefill failed");
+    }
+}
+
+// Attach a small, SAME-TOKENIZER draft model to enable speculative decoding on the target.
+// (e.g. Llama-3.2-1B drafting for Llama-3.2-3B — they share the Llama-3.2 vocab.) The draft
+// runs on CPU; its system prefix is seeded lazily by ensure_system().
+bool attach_draft(Model* m, const char* draftPath) {
+    if (!m) return false;
+    if (m->draft_ctx) return true;                       // already attached
+    llama_model_params mp = llama_model_default_params();
+    mp.n_gpu_layers = 0; mp.use_mmap = true;             // draft is small → CPU
+    llama_model* dm = llama_model_load_from_file(draftPath, mp);
+    if (!dm) { LOGE("draft load failed: %s", draftPath); return false; }
+    llama_context_params cp = llama_context_default_params();
+    cp.n_ctx = m->n_ctx; cp.n_threads = m->n_threads; cp.n_threads_batch = m->n_threads;
+    cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    llama_context* dc = llama_init_from_model(dm, cp);
+    if (!dc) { LOGE("draft ctx init failed"); llama_model_free(dm); return false; }
+    m->draft_model = dm; m->draft_ctx = dc;
+    m->system_ready = false;   // re-seed system into BOTH on next generate (attach is pre-generation)
+    if (!g_engine_label.empty()) g_engine_label += " + draft";
+    LOGI("draft attached: %s", draftPath);
+    return true;
+}
+
+// Greedy speculative decoding: the draft proposes DRAFT_N tokens, the target verifies them
+// in ONE batch; accepted tokens are ~free (one target forward pass yields several tokens).
+// v1 uses greedy (argmax) target verification — deterministic, so it trades sampling variety
+// for speed, but preserves multi-turn (both KVs stay in lockstep). Requires m->draft_ctx.
+static int generate_speculative(Model* m, const std::string& sessionId,
+                                const std::string& prompt, const Sink& sink) {
+    llama_context*     tctx  = m->ctx;
+    llama_context*     dctx  = m->draft_ctx;
+    const llama_vocab* vocab = llama_model_get_vocab(m->model);
+    const int          n_vocab = llama_vocab_n_tokens(vocab);
+    llama_memory_t     tmem  = llama_get_memory(tctx);
+    llama_memory_t     dmem  = llama_get_memory(dctx);
+
+    ensure_system(m);   // seeds system into BOTH contexts (aligned at [0, system_len))
+
+    const bool fresh = sessionId.empty() || sessionId != m->active_session;
+    if (fresh) {
+        llama_memory_seq_rm(tmem, 0, m->system_len, -1);
+        llama_memory_seq_rm(dmem, 0, m->system_len, -1);
+        m->active_session = sessionId;
+        m->session_past   = m->system_len;
+    }
+    int n_past = m->session_past;   // shared KV length for BOTH contexts
+
+    // Tokenize the user turn (target vocab == draft vocab).
+    const std::string text = format_turn(prompt);
+    const int np = -llama_tokenize(vocab, text.c_str(), (int)text.size(), nullptr, 0, false, true);
+    std::vector<llama_token> ptoks(np > 0 ? np : 1);
+    if (np <= 0 || llama_tokenize(vocab, text.c_str(), (int)text.size(), ptoks.data(), np, false, true) < 0) {
+        LOGE("spec: tokenize failed"); return 0;
+    }
+
+    const int DRAFT_N = 4;                       // candidates proposed per iteration
+    const int cap = std::max(np, DRAFT_N + 1);
+    llama_batch batch = llama_batch_init(cap, 0, 1);
+    auto put = [&](const llama_token* toks, int n, int pos0, bool logits_all) {
+        batch.n_tokens = n;
+        for (int i = 0; i < n; ++i) {
+            batch.token[i]     = toks[i];
+            batch.pos[i]       = pos0 + i;
+            batch.n_seq_id[i]  = 1;
+            batch.seq_id[i][0] = 0;
+            batch.logits[i]    = logits_all ? 1 : 0;
+        }
+        if (!logits_all && n > 0) batch.logits[n - 1] = 1;   // else logits on last only
+    };
+    auto argmax = [&](const float* lg) -> llama_token {
+        llama_token best = 0; float bv = lg[0];
+        for (int v = 1; v < n_vocab; ++v) if (lg[v] > bv) { bv = lg[v]; best = v; }
+        return best;
+    };
+
+    // Prefill the prompt into both contexts (logits on the last token → next-token prediction).
+    put(ptoks.data(), np, n_past, false);
+    if (llama_decode(dctx, batch)) { LOGE("spec: draft prefill"); llama_batch_free(batch); return 0; }
+    put(ptoks.data(), np, n_past, false);
+    if (llama_decode(tctx, batch)) { LOGE("spec: target prefill"); llama_batch_free(batch); return 0; }
+    n_past += np;
+
+    // ---- emission machinery (same UTF-8 boundary + stop-marker handling as generate()) ----
+    static const std::string STOPS[] = { "<|im_end|>", "<|im_start|>", "<|endoftext|>" };
+    size_t max_stop = 0; for (const auto& s : STOPS) if (s.size() > max_stop) max_stop = s.size();
+    llama_token im_end = -1;
+    { llama_token t[4]; if (llama_tokenize(vocab, "<|im_end|>", 10, t, 4, false, true) == 1) im_end = t[0]; }
+    std::string decoded; size_t emitted = 0; char piece[256];
+    auto flush_upto = [&](size_t end) {
+        if (end <= emitted) return;
+        std::string chunk = decoded.substr(emitted, end - emitted);
+        size_t safe = safe_utf8_len(chunk);
+        if (safe > 0 && sink.emit_chunk) { sink.emit_chunk(chunk.substr(0, safe)); emitted += safe; }
+    };
+    int produced = 0;
+    auto emit_token = [&](llama_token tok) -> bool {           // returns true = stop
+        if (llama_vocab_is_eog(vocab, tok) || tok == im_end) return true;
+        int n = llama_token_to_piece(vocab, tok, piece, sizeof(piece), 0, false);
+        if (n > 0) decoded.append(piece, n);
+        ++produced;
+        size_t cut = std::string::npos;
+        for (const auto& s : STOPS) { size_t p = decoded.find(s, emitted);
+            if (p != std::string::npos && (cut == std::string::npos || p < cut)) cut = p; }
+        if (cut != std::string::npos) { flush_upto(cut); return true; }
+        size_t avail = decoded.size() - emitted;
+        flush_upto(decoded.size() - ((avail < max_stop - 1) ? avail : (max_stop - 1)));
+        return false;
+    };
+
+    const int max_tokens = 512;
+    int total_drafted = 0, total_accepted = 0;
+    using clk = std::chrono::steady_clock;
+    const auto t_start = clk::now();
+    bool stopped = false;
+
+    while (produced < max_tokens && !stopped) {
+        if (m->cancel || (sink.is_cancelled && sink.is_cancelled())) break;
+        if (n_past + DRAFT_N + 2 >= m->n_ctx) { LOGI("spec: context full"); break; }
+
+        // 1) Draft proposes up to DRAFT_N tokens greedily (each decode gives the next).
+        llama_token drafts[DRAFT_N]; int ndraft = 0;
+        for (int i = 0; i < DRAFT_N; ++i) {
+            llama_token c = argmax(llama_get_logits_ith(dctx, -1));
+            drafts[i] = c;
+            put(&c, 1, n_past + i, false);
+            if (llama_decode(dctx, batch)) break;
+            ndraft = i + 1;
+        }
+        if (ndraft == 0) break;
+        total_drafted += ndraft;
+
+        // 2) Target's own next-token (t0) BEFORE the verify batch overwrites its logits.
+        llama_token t_pred = argmax(llama_get_logits_ith(tctx, -1));
+        // Verify all candidates in one target forward pass (logits at every position).
+        put(drafts, ndraft, n_past, true);
+        if (llama_decode(tctx, batch)) { LOGE("spec: target verify"); break; }
+
+        // 3) Accept the longest prefix where the target agrees with the draft.
+        int accepted = 0;
+        for (int i = 0; i < ndraft; ++i) {
+            if (t_pred == drafts[i]) { accepted++; t_pred = argmax(llama_get_logits_ith(tctx, i)); }
+            else break;
+        }
+        total_accepted += accepted;
+        // t_pred is now the correction (on mismatch) or the bonus token (all accepted).
+
+        // 4) Roll both KVs back to the accepted length, then decode the correction into both.
+        llama_memory_seq_rm(tmem, 0, n_past + accepted, -1);
+        llama_memory_seq_rm(dmem, 0, n_past + accepted, -1);
+        put(&t_pred, 1, n_past + accepted, false);
+        if (llama_decode(tctx, batch)) { LOGE("spec: target correct"); break; }
+        put(&t_pred, 1, n_past + accepted, false);
+        if (llama_decode(dctx, batch)) { LOGE("spec: draft correct"); break; }
+
+        // 5) Emit accepted drafts + the correction/bonus, checking stops in order.
+        for (int i = 0; i < accepted && !stopped; ++i) stopped = emit_token(drafts[i]);
+        if (!stopped) stopped = emit_token(t_pred);
+
+        n_past += accepted + 1;
+    }
+    if (emitted < decoded.size() && sink.emit_chunk) sink.emit_chunk(decoded.substr(emitted));
+
+    const double secs = std::chrono::duration<double>(clk::now() - t_start).count();
+    const double accept_rate = total_drafted > 0 ? (double)total_accepted / total_drafted : 0.0;
+    LOGI("spec perf: session='%s' | %d tok in %.2fs = %.1f tok/s | draft accept=%.0f%% (%d/%d) | kv=%d",
+         sessionId.c_str(), produced, secs, secs > 0 ? produced / secs : 0.0,
+         accept_rate * 100.0, total_accepted, total_drafted, n_past);
+
+    m->session_past = n_past;
+    llama_batch_free(batch);
+    return produced;
 }
 
 int generate(Model* m, const std::string& sessionId, const std::string& prompt, const Sink& sink) {
     if (!m || !m->model || !m->ctx) return 0;
     m->cancel = false;
+    if (m->draft_ctx) return generate_speculative(m, sessionId, prompt, sink);
 
     const llama_vocab* vocab = llama_model_get_vocab(m->model);
     llama_context*     ctx   = m->ctx;
@@ -372,8 +555,10 @@ void request_cancel(Model* m) { if (m) m->cancel = true; }
 
 void unload_model(Model* m) {
     if (!m) return;
-    if (m->ctx)   llama_free(m->ctx);
-    if (m->model) llama_model_free(m->model);
+    if (m->draft_ctx)   llama_free(m->draft_ctx);
+    if (m->draft_model) llama_model_free(m->draft_model);
+    if (m->ctx)         llama_free(m->ctx);
+    if (m->model)       llama_model_free(m->model);
     delete m;
 }
 
