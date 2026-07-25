@@ -68,12 +68,22 @@ class LiteRtEngine(private val appContext: Context? = null) : InferenceEngine {
         // on Mali/Exynos: initialize() throws "embedding_lookup != nullptr"). On failure we return
         // null and EngineRegistry falls back to llama.cpp.
         return try {
-            // MTP (multi-token prediction / speculative decoding) is recommended on GPU.
+            // MTP (multi-token prediction) = LiteRT-LM's on-GPU speculative decoding. It only does
+            // anything when the model actually carries MTP heads — TRUE for the catalog's Gemma 4
+            // E2B build, a no-op on the old Qwen build. On Gemma 4 it accelerates decode with ~zero
+            // quality loss, which is the per-token GPU win beyond the raw backend.
+            // VERIFY on-device: the "litert perf:" decode tok/s in generate() should jump vs. the
+            // same model with this flag off; if it doesn't, MTP isn't engaging — check that (a) the
+            // loaded .litertlm has MTP heads and (b) this flag name still exists in the resolved AAR
+            // (latest.release may rename ExperimentalFlags.enableSpeculativeDecoding).
             ExperimentalFlags.enableSpeculativeDecoding = true
             val engine = Engine(EngineConfig(
                 modelPath = path,
                 backend = Backend.GPU(),
                 cacheDir = ctx.cacheDir.path,   // speeds up 2nd load
+                // NOTE: leaving maxNumTokens = null (model default, ekv). Gemma 4 E2B is a ~2.6 GB
+                // model; if the GPU OOMs on 6 GB devices, cap KV here (e.g. maxNumTokens = 2048) to
+                // shrink the cache — it trades max context for headroom, not for steady-state tok/s.
             ))
             engine.initialize()   // slow (~up to 10s) — caller already runs off the main thread
             EngineProfile.setLitertGpuUsable(ctx, true)    // probe verdict: GPU works here

@@ -131,6 +131,16 @@ class RuntimeActivity : ComponentActivity() {
         }
 
         super.onCreate(savedInstanceState)
+        // Sustained performance mode: on devices that support it, ask the OS to hold a steady,
+        // thermally-sustainable clock instead of boosting then throttling. Inference decode decays
+        // as the SoC heats up over a long reply; a steady clock gives a higher AVERAGE tok/s (and
+        // far less variance) across the reply. No-op where unsupported. Requires API 24+.
+        runCatching {
+            val pm = getSystemService(android.os.PowerManager::class.java)
+            if (pm?.isSustainedPerformanceModeSupported == true) {
+                window.setSustainedPerformanceMode(true)
+            }
+        }
         // API 35 is edge-to-edge by default; use light bar icons (dark UI) and
         // transparent bars, then pad content by the system-bar insets below.
         enableEdgeToEdge(

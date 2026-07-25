@@ -116,25 +116,40 @@ object ModelCatalog {
             url = "https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_0.gguf?download=true",
         ),
         // --- Phase B (LiteRT-LM) — ACTIVE. An UNGATED, GPU-portable .litertlm from the LiteRT
-        // community hub (Qwen2.5-1.5B, Apache-2.0) — ungated so the in-app download needs no HF
-        // login (Gemma is gated → 401). Must be a real .litertlm (NOT a .task, which LiteRT-LM's
-        // Engine rejects with "Invalid magic number"). Routes to LiteRtEngine on 64-bit devices;
-        // if the GPU backend can't initialize the model won't load (no GGUF fallback for this
-        // entry). See docs/PHASE-B-LITERT-INTEGRATION.md.
+        // community hub. We use **Gemma 4 E2B** rather than the older Qwen2.5-1.5B q8 build for two
+        // reasons that together fix the GPU story:
+        //   1) MTP — Gemma 4 ships multi-token-prediction heads, so LiteRtEngine's
+        //      `enableSpeculativeDecoding = true` flag ACTUALLY engages here (it was inert on Qwen,
+        //      which has no MTP). MTP accelerates GPU decode with ~zero quality loss (LiteRT-LM
+        //      v0.11+). This is the real per-token speedup on top of the raw GPU backend.
+        //   2) Ungated — the `litert-community/gemma-4-E2B-it-litert-lm` mirror is tagged apache-2.0
+        //      and needs NO Hugging Face login, so DownloadWorker (which sends no auth token) can
+        //      fetch it (the google/* Gemma repos are gated → 401). ⚠️ LICENSE: the underlying
+        //      weights are still governed by Google's Gemma Terms of Use — confirm those terms allow
+        //      redistribution in your app before shipping this entry (the HF tag says apache-2.0 for
+        //      the LiteRT packaging, but Gemma weights carry Gemma's own terms).
+        // Use the GENERIC `gemma-4-E2B-it.litertlm` (portable CPU/GPU OpenCL). The SoC-suffixed
+        // builds (_qualcomm_sm8750, _Google_Tensor_G5, _intel_*) target the NPU/QNN path, which our
+        // engine (Backend.GPU) does not use. Must be a real .litertlm (NOT a .task, which LiteRT-LM's
+        // Engine rejects with "Invalid magic number"). Routes to LiteRtEngine on 64-bit devices; if
+        // the GPU backend can't initialize the model won't load (no GGUF fallback). Bigger download
+        // than the Qwen build (2.59 GB vs 1.6 GB) and needs more RAM — but far stronger + multimodal,
+        // and MTP keeps decode competitive. See docs/PHASE-B-LITERT-INTEGRATION.md.
         ModelSpec(
-            id = "qwen2.5-1.5b-litert",
-            name = "Qwen2.5 1.5B (LiteRT)",
-            params = "1.5B", quant = "INT8", sizeMb = 1524, ctx = "4K",
-            minRamMb = 3072, license = "Apache-2.0",
-            blurb = "Qwen2.5 1.5B, LiteRT-LM build with GPU acceleration — the fast path on " +
-                    "devices with a capable GPU (portable OpenCL backend). Ungated download.",
-            useCase = "High-throughput on-device chat on GPU hardware (LiteRT-LM engine).",
+            id = "gemma-4-e2b-litert",
+            name = "Gemma 4 E2B (LiteRT)",
+            params = "E2B (~2B)", quant = "INT4", sizeMb = 2590, ctx = "4K",
+            minRamMb = 6144, license = "Gemma Terms of Use",
+            blurb = "Google's Gemma 4 E2B, LiteRT-LM GPU build with multi-token prediction (MTP) " +
+                    "speculative decoding — the fast path on Adreno-class GPUs. Stronger and newer " +
+                    "than the Qwen build it replaces. Ungated download, no Hugging Face login.",
+            useCase = "High-quality, hardware-accelerated on-device chat on GPU hardware with MTP decode (LiteRT-LM engine).",
             simpleName = "Turbo Assistant",
-            simpleTagline = "Hardware-accelerated on supported phones — very fast replies.",
+            simpleTagline = "Hardware-accelerated with multi-token prediction — fast, high-quality replies on supported phones.",
             url = "",  // no GGUF: this model runs only on the LiteRT-LM engine
             format = "litertlm",
-            litertUrl = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.litertlm?download=true",
-            litertSizeMb = 1524,
+            litertUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true",
+            litertSizeMb = 2590,
         ),
     )
 

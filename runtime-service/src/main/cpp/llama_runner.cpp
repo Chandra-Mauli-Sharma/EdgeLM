@@ -1,6 +1,7 @@
 #include "llama_runner.h"
 #include "llama.h"
 #include "ggml-backend.h"   // device enumeration (diagnostic: is a Vulkan GPU present?)
+#include "ggml-cpu.h"       // ggml_threadpool_new/_free — pinned big-core decode threadpool
 
 #include <android/log.h>
 #include <thread>
@@ -40,6 +41,12 @@ struct Model {
     // generate() routes through generate_speculative(). Both KVs are kept in lockstep.
     llama_model*   draft_model = nullptr;
     llama_context* draft_ctx   = nullptr;
+    // Pinned big-core threadpool shared by target + draft contexts (decodes are serialized, so one
+    // pool is safe). Owned here; freed in unload_model AFTER both contexts are freed.
+    ggml_threadpool_t threadpool = nullptr;
+    // EXPERIMENTAL prompt-lookup decoding (no draft model). OFF unless a "<model>.lookup" sentinel
+    // file exists next to the model. Enabling makes decode deterministic (greedy). See generate_lookup.
+    bool           lookup = false;
 };
 
 static std::once_flag g_backend_once;
@@ -50,19 +57,46 @@ static void ensure_backend() {
 // Backend chosen at the most recent load_model() — surfaced to the UI via engine_label().
 static std::string g_engine_label;
 
-// Count "performance" (big/prime) cores by CPU max frequency. Spreading llama.cpp threads
-// onto slow little cores hurts throughput, so we run on the big-core count, not hw/2.
-static int perf_core_count() {
+// Identify "performance" (big/prime) cores by CPU max frequency. Spreading llama.cpp threads
+// onto slow little cores hurts throughput, so we run on the big-core COUNT (not hw/2) and — new —
+// we also return WHICH cores they are, so the threadpool can be PINNED to them (strict affinity).
+// Without pinning the kernel is free to migrate a hot decode thread onto a little core mid-reply.
+struct PerfCores {
+    int  count = 4;                          // number of big cores (threads to run)
+    bool pinned = false;                     // true if we identified specific cores to pin to
+    bool mask[GGML_MAX_N_THREADS] = {false}; // cpumask: mask[i]=true → pin a thread to cpu i
+};
+static PerfCores perf_cores() {
+    PerfCores pc;
     const unsigned n = std::thread::hardware_concurrency();
-    if (n == 0) return 4;
+    if (n == 0) { pc.count = 4; pc.pinned = false; return pc; }
     std::vector<long> mx(n, 0); long top = 0;
     for (unsigned i = 0; i < n; ++i) {
         std::ifstream f("/sys/devices/system/cpu/cpu" + std::to_string(i) + "/cpufreq/cpuinfo_max_freq");
         long v = 0; if (f >> v) { mx[i] = v; if (v > top) top = v; }
     }
-    if (top <= 0) return (int)std::max(1u, n / 2);              // couldn't read → heuristic
-    int big = 0; for (long v : mx) if (v >= (long)(top * 0.85)) ++big;  // top tier (within 15%)
-    return std::max(1, big);
+    if (top <= 0) { pc.count = (int)std::max(1u, n / 2); pc.pinned = false; return pc; }  // couldn't read → heuristic, no pin
+    int big = 0;
+    for (unsigned i = 0; i < n && i < (unsigned)GGML_MAX_N_THREADS; ++i) {
+        if (mx[i] >= (long)(top * 0.85)) { pc.mask[i] = true; ++big; }                    // top tier (within 15%)
+    }
+    pc.count  = std::max(1, big);
+    pc.pinned = big > 0;
+    return pc;
+}
+
+// Build the pinned, high-priority, polling threadpool and attach it to [ctx]. Pinning keeps decode
+// threads on the big cores; poll keeps them hot between the hundreds of tiny per-token decodes
+// (avoids a futex sleep/wake each step); PRIO_HIGH (a setpriority() bump — no privilege needed,
+// unlike REALTIME) resists being preempted. Returns the pool (attach to draft too), or nullptr.
+static ggml_threadpool_t make_pinned_threadpool(const PerfCores& pc, int n_threads) {
+    ggml_threadpool_params tpp = ggml_threadpool_params_default(n_threads);
+    tpp.prio = GGML_SCHED_PRIO_HIGH;
+    tpp.poll = 100;                                   // aggressive polling: lowest per-token latency
+    if (pc.pinned) { std::memcpy(tpp.cpumask, pc.mask, sizeof(tpp.cpumask)); tpp.strict_cpu = true; }
+    ggml_threadpool_t tp = ggml_threadpool_new(&tpp);
+    if (!tp) LOGE("threadpool alloc failed — falling back to llama's default threads");
+    return tp;
 }
 
 // --- first-load backend probe -------------------------------------------------
@@ -152,6 +186,31 @@ static int decide_gpu_layers(const char* path, bool has_gpu, int n_threads) {
     return chosen;
 }
 
+// --- decode thread-count sweep (cached) ---------------------------------------
+// Decode is memory-bandwidth-bound, so the fastest thread count for decode can be LOWER than the
+// big-core count (extra threads just contend for the same memory bus / shared L3 and add barrier
+// sync cost). Prefill is compute-bound and wants all big cores. We pick the decode winner once per
+// model (bench big-count vs count-1/-2, lower total time wins) and cache it next to the model, same
+// pattern as the GPU probe. Ties favor the higher count (better for prefill). Returns threads to use.
+static std::string thr_path(const char* path) { return std::string(path) + ".threadpref"; }
+static int decide_threads(const char* path, llama_model* model, const PerfCores& pc) {
+    {   // cached?
+        std::ifstream f(thr_path(path)); int v;
+        if (f && (f >> v) && v > 0) { LOGI("thread pref (cached): n_threads=%d", v); return v; }
+    }
+    int    best  = pc.count;
+    double bestS = bench_model_secs(model, pc.count);
+    LOGI("thread sweep: t=%d -> %.3fs (baseline)", pc.count, bestS);
+    for (int t = pc.count - 1; t >= std::max(1, pc.count - 2); --t) {
+        const double s = bench_model_secs(model, t);
+        LOGI("thread sweep: t=%d -> %.3fs", t, s);
+        if (s < bestS * 0.97) { bestS = s; best = t; }   // switch down only on a CLEAR (>3%) win
+    }
+    LOGI("thread sweep: chose n_threads=%d", best);
+    { std::ofstream f(thr_path(path)); if (f) f << best; }   // best-effort cache
+    return best;
+}
+
 Model* load_model(const char* path) {
     ensure_backend();
 
@@ -173,15 +232,20 @@ Model* load_model(const char* path) {
     // Choose the backend by benchmark (cached), not by assumption: GPU can be slower
     // than the CPU on some SoCs. When no GPU is compiled in, has_gpu is false and this
     // resolves to CPU with no probing cost.
-    const int n_threads = perf_core_count();
-    LOGI("threads=%d (performance cores)", n_threads);
+    const PerfCores pc = perf_cores();
+    LOGI("big cores=%d (pinned=%d)", pc.count, (int)pc.pinned);
     const bool has_gpu  = llama_supports_gpu_offload();
-    const int gpu_layers = decide_gpu_layers(path, has_gpu, n_threads);
+    const int gpu_layers = decide_gpu_layers(path, has_gpu, pc.count);
 
     auto try_load = [&](int gl) -> llama_model* {
         llama_model_params mp = llama_model_default_params();
         mp.n_gpu_layers = gl;
         mp.use_mmap     = true;
+        // Lock the weights resident: decode sweeps all ~0.9 GB every token, so a page evicted under
+        // memory pressure costs a major fault mid-reply. mlock keeps them in RAM (llama.cpp degrades
+        // gracefully + warns if RLIMIT_MEMLOCK won't allow it — no hard failure). CPU path only:
+        // when offloading to GPU the weights live in VRAM, so locking host pages is pointless.
+        mp.use_mlock    = (gl == 0);
         return llama_model_load_from_file(path, mp);
     };
 
@@ -189,20 +253,41 @@ Model* load_model(const char* path) {
     if (!lm && gpu_layers != 0) { LOGE("chosen backend load failed; falling back to CPU"); lm = try_load(0); }
     if (!lm) { LOGE("model load failed: %s", path); return nullptr; }
 
+    // Pick the decode thread count (cached sweep) only for the CPU path — GPU offload does the
+    // matmuls on the GPU, so CPU thread count is nearly irrelevant there; keep all big cores.
+    const int n_threads = (gpu_layers == 0) ? decide_threads(path, lm, pc) : pc.count;
+    LOGI("threads=%d (decode)", n_threads);
+
     auto* m = new Model();
     m->model     = lm;
     m->n_threads = n_threads;
+
+    // Pinned, high-priority, polling big-core threadpool (see make_pinned_threadpool). Attached to
+    // the context below so every llama_decode runs on it. Best-effort: on failure we simply fall
+    // back to llama's internal threads (n_threads still set on the context params).
+    m->threadpool = make_pinned_threadpool(pc, n_threads);
 
     llama_context_params cp = llama_context_default_params();
     cp.n_ctx           = m->n_ctx;
     cp.n_threads       = m->n_threads;
     cp.n_threads_batch = m->n_threads;
     cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;   // faster attention + less KV memory
+    // Quantized KV cache (Q8_0): halves the bytes attention reads/writes per token vs the f16
+    // default → less memory traffic (the decode bottleneck) and roughly half the KV RAM. Safe here
+    // because flash attention is enabled (required for a quantized V cache). Quality impact of an
+    // 8-bit KV is negligible; drop back to the f16 default if you ever see accuracy regressions.
+    cp.type_k          = GGML_TYPE_Q8_0;
+    cp.type_v          = GGML_TYPE_Q8_0;
     m->ctx = llama_init_from_model(m->model, cp);
     if (!m->ctx) { LOGE("ctx init failed"); llama_model_free(lm); delete m; return nullptr; }
+    if (m->threadpool) llama_attach_threadpool(m->ctx, m->threadpool, m->threadpool);
     g_engine_label = (gpu_layers != 0 && !gpu_desc.empty()) ? ("GPU · " + gpu_desc) : "CPU";
-    LOGI("model loaded + context warm: %s (n_ctx=%d, threads=%d, engine=%s)",
-         path, m->n_ctx, m->n_threads, g_engine_label.c_str());
+    // Opt-in prompt-lookup decoding: enabled only if a sentinel file sits next to the model
+    // (adb shell "touch <model>.lookup"). Kept a file (not a build flag) so it can be A/B'd on a
+    // shipped build without a recompile. Ignored when a draft model is attached (that path wins).
+    { std::ifstream f(std::string(path) + ".lookup"); m->lookup = f.good(); }
+    LOGI("model loaded + context warm: %s (n_ctx=%d, threads=%d, engine=%s, lookup=%d)",
+         path, m->n_ctx, m->n_threads, g_engine_label.c_str(), (int)m->lookup);
     return m;
 }
 
@@ -267,14 +352,18 @@ bool attach_draft(Model* m, const char* draftPath) {
     if (!m) return false;
     if (m->draft_ctx) return true;                       // already attached
     llama_model_params mp = llama_model_default_params();
-    mp.n_gpu_layers = 0; mp.use_mmap = true;             // draft is small → CPU
+    mp.n_gpu_layers = 0; mp.use_mmap = true; mp.use_mlock = true;   // draft is small → CPU, keep resident
     llama_model* dm = llama_model_load_from_file(draftPath, mp);
     if (!dm) { LOGE("draft load failed: %s", draftPath); return false; }
     llama_context_params cp = llama_context_default_params();
     cp.n_ctx = m->n_ctx; cp.n_threads = m->n_threads; cp.n_threads_batch = m->n_threads;
     cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    cp.type_k = GGML_TYPE_Q8_0; cp.type_v = GGML_TYPE_Q8_0;   // match target: quantized KV cache
     llama_context* dc = llama_init_from_model(dm, cp);
     if (!dc) { LOGE("draft ctx init failed"); llama_model_free(dm); return false; }
+    // Share the target's pinned big-core threadpool: target and draft never decode at the same time
+    // (spec loop alternates), so one pool is correct and avoids oversubscribing the big cores.
+    if (m->threadpool) llama_attach_threadpool(dc, m->threadpool, m->threadpool);
     m->draft_model = dm; m->draft_ctx = dc;
     m->system_ready = false;   // re-seed system into BOTH on next generate (attach is pre-generation)
     if (!g_engine_label.empty()) g_engine_label += " + draft";
@@ -432,10 +521,154 @@ static int generate_speculative(Model* m, const std::string& sessionId,
     return produced;
 }
 
+// EXPERIMENTAL, OFF by default (enable via a "<model>.lookup" sentinel file). Prompt-lookup
+// decoding = speculative decoding with NO draft model: propose the next tokens by finding the most
+// recent place the current suffix (last N_GRAM tokens) appeared in this turn's token history and
+// copying what followed, then VERIFY all candidates in ONE target forward pass. Greedy verify, so
+// every emitted token equals plain greedy decode — correctness holds no matter how bad a guess is;
+// only speed varies. Enabling it makes output deterministic (like generate_speculative). Gains are
+// workload-dependent: strong on repetitive / RAG / code / prompt-echo text, ~0 on freeform prose.
+// Degrades safely to one-token-at-a-time greedy when no lookup match is found.
+static int generate_lookup(Model* m, const std::string& sessionId,
+                           const std::string& prompt, const Sink& sink) {
+    llama_context*     ctx     = m->ctx;
+    const llama_vocab* vocab   = llama_model_get_vocab(m->model);
+    const int          n_vocab = llama_vocab_n_tokens(vocab);
+    llama_memory_t     mem     = llama_get_memory(ctx);
+
+    ensure_system(m);
+    const bool fresh = sessionId.empty() || sessionId != m->active_session;
+    if (fresh) {
+        llama_memory_seq_rm(mem, 0, m->system_len, -1);
+        m->active_session = sessionId;
+        m->session_past   = m->system_len;
+    }
+    int n_past = m->session_past;
+
+    // Tokenize this turn; seed the lookup history with the prompt tokens (catches prompt echoes).
+    const std::string text = format_turn(prompt);
+    const int np = -llama_tokenize(vocab, text.c_str(), (int)text.size(), nullptr, 0, false, true);
+    std::vector<llama_token> ptoks(np > 0 ? np : 1);
+    if (np <= 0 || llama_tokenize(vocab, text.c_str(), (int)text.size(), ptoks.data(), np, false, true) < 0) {
+        LOGE("lookup: tokenize failed"); return 0;
+    }
+    std::vector<llama_token> hist(ptoks.begin(), ptoks.end());   // token history for n-gram lookup
+
+    const int N_GRAM = 2, K = 4;                     // match last 2 tokens; propose up to 4
+    const int cap = std::max(np, K + 1);
+    llama_batch batch = llama_batch_init(cap, 0, 1);
+    auto put = [&](const llama_token* toks, int n, int pos0, bool logits_all) {
+        batch.n_tokens = n;
+        for (int i = 0; i < n; ++i) {
+            batch.token[i] = toks[i]; batch.pos[i] = pos0 + i;
+            batch.n_seq_id[i] = 1; batch.seq_id[i][0] = 0;
+            batch.logits[i] = logits_all ? 1 : 0;
+        }
+        if (!logits_all && n > 0) batch.logits[n - 1] = 1;
+    };
+    auto argmax = [&](const float* lg) -> llama_token {
+        llama_token b = 0; float bv = lg[0];
+        for (int v = 1; v < n_vocab; ++v) if (lg[v] > bv) { bv = lg[v]; b = v; }
+        return b;
+    };
+    // Most recent occurrence of the last N_GRAM tokens earlier in hist → propose up to K following.
+    auto lookup = [&](int& out_start) -> int {
+        const int h = (int)hist.size();
+        if (h < N_GRAM + 1) return 0;
+        for (int i = h - N_GRAM - 1; i >= 0; --i) {
+            bool ok = true;
+            for (int j = 0; j < N_GRAM; ++j) if (hist[i + j] != hist[h - N_GRAM + j]) { ok = false; break; }
+            if (ok) { out_start = i + N_GRAM; return std::min(K, h - (i + N_GRAM)); }
+        }
+        return 0;
+    };
+
+    // Prefill the prompt (logits on last token only).
+    put(ptoks.data(), np, n_past, false);
+    if (llama_decode(ctx, batch)) { LOGE("lookup: prefill"); llama_batch_free(batch); return 0; }
+    n_past += np;
+
+    // Emission machinery: identical UTF-8 boundary + stop-marker handling as generate().
+    static const std::string STOPS[] = { "<|im_end|>", "<|im_start|>", "<|endoftext|>" };
+    size_t max_stop = 0; for (const auto& s : STOPS) if (s.size() > max_stop) max_stop = s.size();
+    llama_token im_end = -1;
+    { llama_token t[4]; if (llama_tokenize(vocab, "<|im_end|>", 10, t, 4, false, true) == 1) im_end = t[0]; }
+    std::string decoded; size_t emitted = 0; char piece[256];
+    auto flush_upto = [&](size_t end) {
+        if (end <= emitted) return;
+        std::string chunk = decoded.substr(emitted, end - emitted);
+        size_t safe = safe_utf8_len(chunk);
+        if (safe > 0 && sink.emit_chunk) { sink.emit_chunk(chunk.substr(0, safe)); emitted += safe; }
+    };
+    int produced = 0;
+    auto emit_token = [&](llama_token tok) -> bool {
+        if (llama_vocab_is_eog(vocab, tok) || tok == im_end) return true;
+        int n = llama_token_to_piece(vocab, tok, piece, sizeof(piece), 0, false);
+        if (n > 0) decoded.append(piece, n);
+        ++produced;
+        size_t cut = std::string::npos;
+        for (const auto& s : STOPS) { size_t p = decoded.find(s, emitted);
+            if (p != std::string::npos && (cut == std::string::npos || p < cut)) cut = p; }
+        if (cut != std::string::npos) { flush_upto(cut); return true; }
+        size_t avail = decoded.size() - emitted;
+        flush_upto(decoded.size() - ((avail < max_stop - 1) ? avail : (max_stop - 1)));
+        return false;
+    };
+
+    const int max_tokens = 512;
+    int total_prop = 0, total_bonus = 0;
+    using clk = std::chrono::steady_clock; const auto t_start = clk::now(); bool stopped = false;
+
+    llama_token t_next = argmax(llama_get_logits_ith(ctx, -1));   // target's next token (from prefill)
+
+    while (produced < max_tokens && !stopped) {
+        if (m->cancel || (sink.is_cancelled && sink.is_cancelled())) break;
+        if (n_past + K + 2 >= m->n_ctx) { LOGI("lookup: context full"); break; }
+
+        // Candidate = [t_next] + lookup continuation of what usually follows t_next.
+        std::vector<llama_token> cand; cand.push_back(t_next);
+        hist.push_back(t_next);                       // tentative, to look up t_next's usual suffix
+        int start = -1; const int g = lookup(start);
+        for (int i = 0; i < g; ++i) cand.push_back(hist[start + i]);
+        hist.pop_back();                              // undo tentative; accepted tokens re-appended below
+        const int ncand = (int)cand.size();
+        total_prop += ncand - 1;                      // guesses beyond the guaranteed t_next
+
+        // Verify all candidates in ONE pass (logits at every position).
+        put(cand.data(), ncand, n_past, true);
+        if (llama_decode(ctx, batch)) { LOGE("lookup: verify"); break; }
+
+        // cand[0]=t_next is correct by construction; accept cand[i] while target greedily agrees.
+        int accepted = 1;
+        while (accepted < ncand) {
+            if (argmax(llama_get_logits_ith(ctx, accepted - 1)) == cand[accepted]) accepted++;
+            else break;
+        }
+        const llama_token new_next = argmax(llama_get_logits_ith(ctx, accepted - 1));
+        total_bonus += accepted - 1;
+
+        // Drop the rejected tail from the KV; keep [0, n_past+accepted).
+        llama_memory_seq_rm(mem, 0, n_past + accepted, -1);
+        n_past += accepted;
+
+        for (int i = 0; i < accepted && !stopped; ++i) { hist.push_back(cand[i]); stopped = emit_token(cand[i]); }
+        t_next = new_next;
+    }
+    if (emitted < decoded.size() && sink.emit_chunk) sink.emit_chunk(decoded.substr(emitted));
+
+    const double secs = std::chrono::duration<double>(clk::now() - t_start).count();
+    LOGI("lookup perf: session='%s' | %d tok in %.2fs = %.1f tok/s | bonus %d/%d | kv=%d",
+         sessionId.c_str(), produced, secs, secs > 0 ? produced / secs : 0.0, total_bonus, total_prop, n_past);
+    m->session_past = n_past;
+    llama_batch_free(batch);
+    return produced;
+}
+
 int generate(Model* m, const std::string& sessionId, const std::string& prompt, const Sink& sink) {
     if (!m || !m->model || !m->ctx) return 0;
     m->cancel = false;
     if (m->draft_ctx) return generate_speculative(m, sessionId, prompt, sink);
+    if (m->lookup)    return generate_lookup(m, sessionId, prompt, sink);
 
     const llama_vocab* vocab = llama_model_get_vocab(m->model);
     llama_context*     ctx   = m->ctx;
@@ -559,6 +792,7 @@ void unload_model(Model* m) {
     if (m->draft_model) llama_model_free(m->draft_model);
     if (m->ctx)         llama_free(m->ctx);
     if (m->model)       llama_model_free(m->model);
+    if (m->threadpool)  ggml_threadpool_free(m->threadpool);   // free AFTER the contexts using it
     delete m;
 }
 

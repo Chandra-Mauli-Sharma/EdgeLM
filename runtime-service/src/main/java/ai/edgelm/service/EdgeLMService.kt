@@ -54,6 +54,10 @@ class EdgeLMService : Service() {
         // Free the model after this long with zero requests (the service itself
         // stays up so apps can still reach it; the model lazily reloads on demand).
         const val IDLE_UNLOAD_MS = 5 * 60_000L
+        // ADPF target per-token work duration. Set deliberately BELOW the observed pace (~59 ms/token
+        // at 17 tok/s) so the hint asks the governor to boost clocks toward it. ~25 ms ≈ a 40 tok/s
+        // aspiration; the system won't exceed hardware limits, it just stops under-clocking.
+        const val TARGET_TOKEN_NANOS = 25_000_000L
     }
 
     // Fires the idle auto-unload; reset on every new request.
@@ -335,10 +339,35 @@ class EdgeLMService : Service() {
         activeApp = caller
         activeCount.incrementAndGet()
         updateNotification()   // -> "Generating for <app>…"
+        // Raise this worker's scheduler priority for the duration of the decode. The native
+        // threadpool already runs its compute threads at high priority, but bumping the JNI-calling
+        // thread too keeps the DVFS governor seeing a busy high-priority thread (helps hold clocks)
+        // and reduces the chance of preemption stalling llama_decode. Restored in finally.
+        val prevPrio = android.os.Process.getThreadPriority(android.os.Process.myTid())
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO)  // -19
+        // ADPF hint session (API 31+): tell the scheduler this thread has a tight per-token deadline
+        // so it raises CPU **and memory-controller** clocks to meet it — the direct lever on
+        // bandwidth-bound decode, and smarter than the blunt sustained-mode cap. We report the
+        // actual time between streamed tokens; a target set below the current pace asks for a boost.
+        // Best-effort: null on unsupported devices. The calling thread is ggml's main compute thread
+        // (pinned to a big core), so hinting its TID hits a real decode core.
+        val hint = runCatching {
+            getSystemService(android.os.PerformanceHintManager::class.java)
+                ?.createHintSession(intArrayOf(android.os.Process.myTid()), TARGET_TOKEN_NANOS)
+        }.getOrNull()
+        var lastTokenNs = System.nanoTime()
         try {
             val started = System.currentTimeMillis()
             val sink = object : InferenceEngine.TokenSink {
-                override fun onChunk(text: String) = onToken(text)
+                override fun onChunk(text: String) {
+                    onToken(text)
+                    // Report actual per-token work so the governor adapts its clock choice.
+                    hint?.let {
+                        val now = System.nanoTime()
+                        runCatching { it.reportActualWorkDuration(now - lastTokenNs) }
+                        lastTokenNs = now
+                    }
+                }
                 override fun isCancelled(): Boolean = isCancelled()
             }
             val n = engine.generate(session!!, sessionId, prompt, sink)
@@ -346,6 +375,8 @@ class EdgeLMService : Service() {
             if (elapsed > 0 && n > 0) lastTps = n * 1000.0 / elapsed
             EdgeLMHttpServer.GenStats(n, elapsed)
         } finally {
+            runCatching { hint?.close() }                                    // release the hint session
+            runCatching { android.os.Process.setThreadPriority(prevPrio) }   // restore worker prio
             activeCount.decrementAndGet()
             requestsServed.incrementAndGet()
             updateNotification()   // -> back to "Ready · N served"
