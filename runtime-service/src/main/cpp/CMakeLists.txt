@@ -100,10 +100,27 @@ endif()
 
 add_subdirectory(llama.cpp)
 
+# --- paged-KV continuous batching (PHASE1-KV-POOLING.md, increment 2) --------
+# OFF by default so the shipping build NEVER compiles the unproven batched engine.
+# Opt in with -DEDGELM_BATCHED=ON from the Gradle externalNativeBuild arguments to
+# build + test BatchedRuntime (session_registry.h + batched_runner.cpp) behind the
+# NativeBridge.batchedRunTest entry point.
+option(EDGELM_BATCHED "Build the continuous-batching decode engine (increment 2)" OFF)
+set(EDGELM_EXTRA_SRC "")
+if(EDGELM_BATCHED)
+    set(EDGELM_EXTRA_SRC batched_runner.cpp)
+    message(STATUS "EdgeLM: continuous-batching engine ENABLED (increment 2)")
+endif()
+
 # --- our JNI shim ------------------------------------------------------------
 add_library(edgelm SHARED
         edgelm_jni.cpp
-        llama_runner.cpp)
+        llama_runner.cpp
+        ${EDGELM_EXTRA_SRC})
+
+if(EDGELM_BATCHED)
+    target_compile_definitions(edgelm PRIVATE EDGELM_BATCHED)
+endif()
 
 find_library(log-lib log)
 target_link_libraries(edgelm ${log-lib} llama)

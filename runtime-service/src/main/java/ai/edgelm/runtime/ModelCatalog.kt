@@ -30,6 +30,16 @@ data class ModelSpec(
     val format: String = "gguf",   // artifact type → engine routing: "gguf" (llama.cpp) | "litertlm" (LiteRT-LM)
     val litertUrl: String? = null, // optional .litertlm artifact for the LiteRT-LM engine (Phase B+)
     val litertSizeMb: Int? = null, // download size of the .litertlm artifact, if different from sizeMb
+    // --- Hub v1 (content-addressing + versioning; see Hub.kt / docs/PHASE1-HUB.md) ---
+    // Expected SHA-256 of the downloaded artifact. When set, DownloadWorker refuses to
+    // install a file whose hash doesn't match (tamper/corruption guard). Null = legacy
+    // (unverified) entry; fill in when publishing through Hub. Per-format because the
+    // gguf and .litertlm artifacts are different bytes.
+    val sha256: String? = null,        // for the gguf artifact
+    val litertSha256: String? = null,  // for the .litertlm artifact
+    val version: Int = 1,              // model version → pin/rollback (Hub)
+    val family: String? = null,        // logical family for Hub.resolve(), e.g. "llm.small"
+    val kind: String = "chat",         // "chat" (generation) | "embed" (embedding encoder)
 )
 
 /**
@@ -151,7 +161,32 @@ object ModelCatalog {
             litertUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true",
             litertSizeMb = 2590,
         ),
+        // --- Phase 2: on-device embeddings (kind="embed") ---------------------------------
+        // BGE-small-en-v1.5: a tiny (33M) BERT-style encoder → 384-dim sentence embeddings,
+        // strong for its size on retrieval. Runs on CPU in llama.cpp embedding mode (mean
+        // pooling). Loaded in a SEPARATE handle from the chat model, so on-device RAG can
+        // embed + chat without swapping models. ⚠️ VERIFY the URL resolves without a HF token
+        // before shipping (mirrors the chat-model download policy). No instruction prefix is
+        // applied — fine for symmetric similarity; add "Represent this sentence:" for asymmetric
+        // retrieval if quality needs it.
+        ModelSpec(
+            id = "bge-small-en-v1.5",
+            name = "BGE-small EN v1.5 (embeddings)",
+            params = "33M", quant = "Q8_0", sizeMb = 34, ctx = "512",
+            minRamMb = 256, license = "MIT",
+            blurb = "Tiny on-device text-embedding model (384-dim). Powers local search, " +
+                    "similarity, and retrieval-augmented generation — your text never leaves the device.",
+            useCase = "On-device embeddings for semantic search and RAG (OpenAI /v1/embeddings compatible).",
+            simpleName = "Search Brain",
+            simpleTagline = "Understands meaning for on-device search — text stays private.",
+            url = "https://huggingface.co/CompendiumLabs/bge-small-en-v1.5-gguf/resolve/main/bge-small-en-v1.5-q8_0.gguf?download=true",
+            family = "embed.small",
+            kind = "embed",
+        ),
     )
+
+    /** The default embedding model (kind="embed"), or null if none in the catalog. */
+    fun embeddingModel(): ModelSpec? = models.firstOrNull { it.kind == "embed" }
 
     fun byId(id: String?): ModelSpec? = models.firstOrNull { it.id == id }
 
@@ -196,6 +231,7 @@ object ModelCatalog {
             null  -> device.has64BitAbi && device.likelyLiteRtGpuCapable
         }
         return models.filter { spec ->
+            if (spec.kind != "chat") return@filter false        // embed models aren't chat picks
             val litertOnly = spec.format == "litertlm" && spec.url.isEmpty()
             !litertOnly || litertRunnable
         }

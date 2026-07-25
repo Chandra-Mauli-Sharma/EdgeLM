@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+# edgelm — a scriptable CLI for the EdgeLM on-device runtime (arch doc Part 13).
+#
+# It drives the runtime's OpenAI-compatible loopback shim (127.0.0.1:1408, DEBUG
+# builds) over `adb forward`, so it's CI-friendly and needs no app UI. Commands:
+#
+#   edgelm forward            # set up adb port-forward tcp:1408 (run once per session)
+#   edgelm health             # runtime liveness + warm model set
+#   edgelm models             # list warm models (OpenAI /v1/models shape)
+#   edgelm run "<prompt>"     # stream a completion from the active model
+#   edgelm bench [n] [prompt] # time n runs, print tokens/sec (default n=3)
+#
+# Env: EDGELM_HOST (default 127.0.0.1), EDGELM_PORT (default 1408),
+#      EDGELM_MODEL (default "default").
+#
+# Requires: adb (for `forward`), curl, and either jq or python3 for JSON.
+set -euo pipefail
+
+HOST="${EDGELM_HOST:-127.0.0.1}"
+PORT="${EDGELM_PORT:-1408}"
+MODEL="${EDGELM_MODEL:-default}"
+BASE="http://${HOST}:${PORT}"
+
+die() { echo "edgelm: $*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1"; }
+
+usage() {
+  cat <<'EOF'
+edgelm - CLI for the EdgeLM on-device runtime (loopback shim, DEBUG builds).
+
+  edgelm forward             adb port-forward tcp:1408 (once per session)
+  edgelm health              runtime liveness + warm model set
+  edgelm models              warm models (OpenAI /v1/models)
+  edgelm ls                  Hub catalog: install/active/version/family/pin state
+  edgelm pull <id|family:f>  resolve + enqueue a durable, verified download
+  edgelm pin <id> [t|f]      pin (or unpin) a model to its installed version
+  edgelm unpin <id>          unpin a model
+  edgelm run "<prompt>"      stream a completion from the active model
+  edgelm embed "<text>"      on-device embedding (needs: pull bge-small-en-v1.5)
+  edgelm vectors add <col> "text"     store a doc in a local collection (RAG)
+  edgelm vectors search <col> "query" semantic search a collection
+  edgelm vectors ls                    list collections
+  edgelm bench [n] [prompt]  time n runs: ttft, end-to-end + decode tok/s
+
+  Env: EDGELM_HOST, EDGELM_PORT, EDGELM_MODEL. Needs curl + python3 (adb for forward).
+EOF
+}
+
+cmd_forward() {
+  need adb
+  adb forward "tcp:${PORT}" "tcp:${PORT}" >/dev/null
+  echo "forwarded tcp:${PORT} -> device tcp:${PORT}"
+}
+
+cmd_health() {
+  need curl
+  curl -fsS "${BASE}/health" || die "runtime not reachable — is a DEBUG build running? try: edgelm forward"
+  echo
+}
+
+cmd_models() {
+  need curl
+  curl -fsS "${BASE}/v1/models"
+  echo
+}
+
+# Hub: full catalog with install/active/version/family/pin state.
+cmd_ls() {
+  need curl; need python3
+  local resp; resp=$(curl -fsS "${BASE}/v1/edge/models")
+  printf '%s' "$resp" | python3 - <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+for m in d.get("models", []):
+    flags = []
+    if m.get("active"): flags.append("active")
+    elif m.get("installed"): flags.append("installed")
+    if m.get("pinned_version", -1) >= 0: flags.append("pinned@%d" % m["pinned_version"])
+    print("%-26s %-7s %5d MB  v%d  %-10s %s" % (
+        m["id"], m.get("params",""), m.get("size_mb",0), m.get("version",1),
+        m.get("family",""), " ".join(flags)))
+PY
+}
+
+# Hub: resolve (id | id@ver | family:<f>) and enqueue a durable, verified download.
+cmd_pull() {
+  need curl
+  local model="${1:-}"; [ -n "$model" ] || die 'usage: edgelm pull <id|family:tiny|small|medium>'
+  curl -fsS -H 'Content-Type: application/json' \
+       -d "$(printf '{"model":"%s"}' "$model")" "${BASE}/v1/edge/pull"
+  echo
+}
+
+# On-device vector index (RAG): add / search / ls a local collection.
+cmd_vectors() {
+  need curl; need python3
+  local sub="${1:-}"; shift || true
+  case "$sub" in
+    add)
+      local col="${1:-}"; shift || true; local text="$*"
+      { [ -n "$col" ] && [ -n "$text" ]; } || die 'usage: edgelm vectors add <collection> "text"'
+      curl -fsS -H 'Content-Type: application/json' \
+        -d "$(COL="$col" TEXT="$text" python3 -c 'import json,os; print(json.dumps({"collection":os.environ["COL"],"items":[{"text":os.environ["TEXT"]}]}))')" \
+        "${BASE}/v1/edge/vectors/upsert"; echo ;;
+    search)
+      local col="${1:-}"; shift || true; local q="$*"
+      { [ -n "$col" ] && [ -n "$q" ]; } || die 'usage: edgelm vectors search <collection> "query"'
+      local resp; resp=$(curl -fsS -H 'Content-Type: application/json' \
+        -d "$(COL="$col" Q="$q" python3 -c 'import json,os; print(json.dumps({"collection":os.environ["COL"],"query":os.environ["Q"],"top_k":5}))')" \
+        "${BASE}/v1/edge/vectors/query")
+      printf '%s' "$resp" | python3 - <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+if "error" in d: print(d["error"])
+else:
+    for m in d.get("matches", []): print("%.3f  %s" % (m["score"], m["text"]))
+PY
+      ;;
+    ls) curl -fsS "${BASE}/v1/edge/vectors/collections"; echo ;;
+    *) die 'usage: edgelm vectors add|search|ls ...' ;;
+  esac
+}
+
+# On-device embedding: prints model, dimension, and the first few values.
+cmd_embed() {
+  need curl; need python3
+  local text="${1:-}"; [ -n "$text" ] || die 'usage: edgelm embed "your text"'
+  local resp; resp=$(curl -fsS -H 'Content-Type: application/json' \
+    -d "$(printf '{"input":"%s"}' "$text")" "${BASE}/v1/embeddings")
+  printf '%s' "$resp" | python3 - <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+if "error" in d: print(d["error"]); sys.exit(0)
+v = d["data"][0]["embedding"]
+print("model %s | dim %d | first 5: [%s, ...]" % (
+    d.get("model","?"), len(v), ", ".join("%.4f" % x for x in v[:5])))
+PY
+}
+
+# Hub: pin (default) or unpin a model to its installed version (rollback support).
+cmd_pin() {
+  need curl
+  local model="${1:-}"; local pinned="${2:-true}"
+  [ -n "$model" ] || die 'usage: edgelm pin <id> [true|false]'
+  curl -fsS -H 'Content-Type: application/json' \
+       -d "$(printf '{"model":"%s","pinned":%s}' "$model" "$pinned")" "${BASE}/v1/edge/pin"
+  echo
+}
+
+# Stream a chat completion, printing token deltas as they arrive (SSE).
+cmd_run() {
+  need curl
+  local prompt="${1:-}"; [ -n "$prompt" ] || die 'usage: edgelm run "<prompt>"'
+  local body
+  body=$(json_body "$prompt" true)
+  curl -fsS -N -H 'Content-Type: application/json' -d "$body" \
+       "${BASE}/v1/chat/completions" | parse_sse
+  echo
+}
+
+# Time n non-streaming runs and report tokens/sec from the usage + edge.elapsed_ms.
+cmd_bench() {
+  need curl
+  local n="${1:-3}"; local prompt="${2:-Write one sentence about the ocean.}"
+  local body total_tok=0 total_ms=0 i
+  body=$(json_body "$prompt" false)
+  local total_ttft=0 total_decode_ms=0
+  echo "benchmarking ${n} run(s) on '${MODEL}'…"
+  for ((i=1; i<=n; i++)); do
+    local resp tok ms ttft decode_ms tps dtps
+    resp=$(curl -fsS -H 'Content-Type: application/json' -d "$body" "${BASE}/v1/chat/completions")
+    tok=$(json_get "$resp" 'usage.completion_tokens')
+    ms=$(json_get "$resp" 'edge.elapsed_ms')
+    ttft=$(json_get "$resp" 'edge.ttft_ms')
+    decode_ms=$(( ${ms:-0} - ${ttft:-0} )); [ "$decode_ms" -lt 0 ] && decode_ms=0
+    tps=$(awk -v t="$tok" -v m="$ms" 'BEGIN{ if (m>0) printf "%.1f", t*1000/m; else print "?" }')
+    dtps=$(awk -v t="$tok" -v m="$decode_ms" 'BEGIN{ if (m>0) printf "%.1f", (t-1)*1000/m; else print "?" }')
+    printf "  run %d: %s tok | ttft %s ms | end-to-end %s tok/s | decode %s tok/s\n" "$i" "$tok" "$ttft" "$tps" "$dtps"
+    total_tok=$((total_tok + ${tok:-0})); total_ms=$((total_ms + ${ms:-0}))
+    total_ttft=$((total_ttft + ${ttft:-0})); total_decode_ms=$((total_decode_ms + decode_ms))
+  done
+  awk -v t="$total_tok" -v m="$total_ms" -v d="$total_decode_ms" -v ttft="$total_ttft" -v n="$n" 'BEGIN{
+    e2e = (m>0) ? t*1000/m : 0
+    dec = (d>0) ? (t-n)*1000/d : 0
+    printf "average: end-to-end %.1f tok/s | decode %.1f tok/s | ttft %d ms\n", e2e, dec, ttft/n
+  }'
+}
+
+# ---- JSON helpers (jq if present, else python3) -----------------------------
+
+json_body() { # prompt, stream(bool)
+  local prompt="$1" stream="$2"
+  if command -v jq >/dev/null 2>&1; then
+    jq -nc --arg m "$MODEL" --arg p "$prompt" --argjson s "$stream" \
+      '{model:$m, stream:$s, messages:[{role:"user", content:$p}]}'
+  else
+    need python3
+    MODEL="$MODEL" PROMPT="$prompt" STREAM="$stream" python3 - <<'PY'
+import json, os
+print(json.dumps({"model": os.environ["MODEL"], "stream": os.environ["STREAM"]=="true",
+                  "messages": [{"role": "user", "content": os.environ["PROMPT"]}]}))
+PY
+  fi
+}
+
+json_get() { # json, dotted.path  (supports numeric segments as list indices)
+  need python3
+  PATH_="$2" python3 - "$1" <<'PY'
+import json, os, sys
+try:
+    d = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(0)
+for k in os.environ["PATH_"].split("."):
+    if isinstance(d, list) and k.isdigit():
+        d = d[int(k)] if int(k) < len(d) else None
+    elif isinstance(d, dict):
+        d = d.get(k)
+    else:
+        d = None
+    if d is None:
+        break
+print("" if d is None or isinstance(d, (dict, list)) else d)
+PY
+}
+
+parse_sse() {
+  # Emit the content delta from each `data: {...}` line; stop at [DONE].
+  while IFS= read -r line; do
+    case "$line" in
+      "data: [DONE]") break ;;
+      data:\ *) json_get "${line#data: }" 'choices.0.delta.content' | tr -d '\n' ;;
+    esac
+  done
+}
+
+main() {
+  local sub="${1:-}"; shift || true
+  case "$sub" in
+    forward) cmd_forward "$@" ;;
+    health)  cmd_health "$@" ;;
+    models)  cmd_models "$@" ;;
+    ls)      cmd_ls "$@" ;;
+    pull)    cmd_pull "$@" ;;
+    pin)     cmd_pin "$@" ;;
+    unpin)   cmd_pin "${1:-}" false ;;
+    batched-test) need curl; curl -fsS -X POST "${BASE}/v1/edge/batched-test"; echo;
+                  echo "watch: adb logcat -s edgelm-batched-test (seq 0/1 should interleave)" ;;
+    batched-mode) need curl
+                  on=true; case "${1:-on}" in off|false|0) on=false;; esac
+                  curl -fsS -H 'Content-Type: application/json' \
+                       -d "$(printf '{"on":%s}' "$on")" "${BASE}/v1/edge/batched-mode"; echo
+                  echo "live requests route through batched engine ($on); watch logcat 'edgelm-batched-svc'" ;;
+    run)     cmd_run "$@" ;;
+    embed)   cmd_embed "$@" ;;
+    vectors) cmd_vectors "$@" ;;
+    bench)   cmd_bench "$@" ;;
+    ""|-h|--help|help) usage ;;
+    *) die "unknown command '$sub' (try: edgelm help)" ;;
+  esac
+}
+main "$@"

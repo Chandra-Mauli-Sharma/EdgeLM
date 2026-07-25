@@ -15,6 +15,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import ai.edgelm.contract.IEdgeLMService
 import ai.edgelm.contract.ITokenCallback
+import ai.edgelm.runtime.VectorStore
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 import ai.edgelm.runtime.BuildConfig
 import ai.edgelm.runtime.ModelCatalog
 import ai.edgelm.runtime.ModelStore
@@ -90,9 +94,26 @@ class EdgeLMService : Service() {
     private val requestIds = AtomicLong(1)
     private val cancelled = ConcurrentHashMap<Long, AtomicBoolean>()
 
-    // Priority-ordered admission to the single engine (Part 8). Also provides the
-    // mutual exclusion the shared context needs — only one generation runs at a time.
-    private val scheduler = AIScheduler()
+    // Battery/thermal governor consulted by the scheduler to defer background work
+    // under heat or low battery (Part 8 hard clamp).
+    private val deviceGovernor by lazy { DeviceGovernor(applicationContext) }
+
+    // Weighted-fair, governed admission to the single engine (Part 8). Provides the
+    // mutual exclusion the shared context needs (one generation at a time), picks the
+    // next waiter by priority + aging + per-app fair share, and lets the governor
+    // defer/deny background jobs when the device is hot or low on battery.
+    private val scheduler by lazy { AIScheduler(governor = { deviceGovernor.snapshot() }) }
+
+    // Fine-grained capability gate on top of the coarse USE_RUNTIME bind permission
+    // (Part 7). Maps the Binder UID -> package -> granted capabilities, grant-on-
+    // first-use for low-risk, explicit consent for high-risk, per-app rate quota.
+    private val broker by lazy { CapabilityBroker(applicationContext) }
+
+    // OPT-IN continuous-batching engine (increment 2 integration). When non-null, requests
+    // route to it (concurrent decode, one driver thread) instead of the serialized
+    // scheduler path. Enabled via POST /v1/edge/batched-mode; needs a -DEDGELM_BATCHED
+    // native build. Null = the default, proven single-context path.
+    @Volatile private var batchedSession: BatchedRuntimeSession? = null
 
     // Pool so multiple Binder requests can be *waiting* in the scheduler at once;
     // the scheduler (not this pool) serializes actual execution in priority order.
@@ -314,6 +335,52 @@ class EdgeLMService : Service() {
         }.getOrDefault(pkg)
     }
 
+    /** Route a request to the batched engine if enabled, else the default serialized path.
+     *  Both front doors (Binder + HTTP) go through here. */
+    private fun dispatchInference(
+        sessionId: String,
+        prompt: String,
+        priority: AIScheduler.Priority,
+        caller: String,
+        uid: Int,
+        onToken: (String) -> Unit,
+        isCancelled: () -> Boolean,
+    ): EdgeLMHttpServer.GenStats {
+        val b = batchedSession
+            ?: return runInference(sessionId, prompt, priority, caller, onToken, isCancelled)
+        // Batched path: concurrent decode, no scheduler lock. Mirror the notification/idle
+        // bookkeeping runInference does so the UI + auto-unload still behave.
+        cancelIdleUnload()
+        activeApp = caller; activeCount.incrementAndGet(); updateNotification()
+        return try {
+            b.generate(uid, sessionId, prompt, priority, onToken, isCancelled).also {
+                if (it.elapsedMs > 0 && it.tokenCount > 0) lastTps = it.tokenCount * 1000.0 / it.elapsedMs
+            }
+        } finally {
+            activeCount.decrementAndGet(); requestsServed.incrementAndGet(); updateNotification()
+        }
+    }
+
+    /** Enable/disable the batched engine. Creation loads the model (backend probe), so it's
+     *  done off-thread; requests transparently use the default path until it's ready. */
+    private fun setBatchedMode(on: Boolean): String {
+        if (on) {
+            if (batchedSession != null) return org.json.JSONObject().put("batched", true).put("note", "already on").toString()
+            val path = currentModelPath()
+            if (path.isEmpty()) return org.json.JSONObject().put("error", "no model installed").toString()
+            worker.execute {
+                val s = BatchedRuntimeSession.create(path)
+                if (s != null) { batchedSession = s; Log.i(TAG, "batched mode ON") }
+                else Log.e(TAG, "batched mode failed — native lib built without -DEDGELM_BATCHED?")
+            }
+            return org.json.JSONObject().put("batched", "starting")
+                .put("note", "loading model; needs a -DEDGELM_BATCHED build. watch logcat 'edgelm-batched-svc'").toString()
+        } else {
+            batchedSession?.let { worker.execute { it.shutdown() }; batchedSession = null }
+            return org.json.JSONObject().put("batched", false).toString()
+        }
+    }
+
     /** The one place inference actually happens; both front doors call this. */
     private fun runInference(
         sessionId: String,
@@ -322,9 +389,11 @@ class EdgeLMService : Service() {
         caller: String,
         onToken: (String) -> Unit,
         isCancelled: () -> Boolean,
-    ): EdgeLMHttpServer.GenStats = scheduler.withEngine(priority) {
-        // Single shared context => serialize; the scheduler admits the highest
-        // priority waiter next (with aging). One generation runs at a time.
+    ): EdgeLMHttpServer.GenStats = scheduler.withEngine(priority, appId = caller) { _ ->
+        // Single shared context => serialize; the scheduler admits the highest effective
+        // score next (priority + aging + per-app fair share). One generation at a time.
+        // The Preemption signal (unused arg) is available for a future engine that can
+        // yield a background decode to a foreground request (continuous batching).
         cancelIdleUnload()     // busy again — don't free the model out from under us
         // Lazily (re)load if the model was auto-unloaded while idle, or never loaded.
         if (session == null) {
@@ -356,10 +425,16 @@ class EdgeLMService : Service() {
                 ?.createHintSession(intArrayOf(android.os.Process.myTid()), TARGET_TOKEN_NANOS)
         }.getOrNull()
         var lastTokenNs = System.nanoTime()
+        // Time-to-first-token: wall time from admission-return to the first streamed chunk.
+        // This is where broker + scheduler + prefill cost shows up (steady-state decode tok/s
+        // is measured separately), so it's the number to watch for scheduler overhead.
+        val startNs = System.nanoTime()
+        var firstTokenNs = 0L
         try {
             val started = System.currentTimeMillis()
             val sink = object : InferenceEngine.TokenSink {
                 override fun onChunk(text: String) {
+                    if (firstTokenNs == 0L) firstTokenNs = System.nanoTime()
                     onToken(text)
                     // Report actual per-token work so the governor adapts its clock choice.
                     hint?.let {
@@ -373,7 +448,8 @@ class EdgeLMService : Service() {
             val n = engine.generate(session!!, sessionId, prompt, sink)
             val elapsed = System.currentTimeMillis() - started
             if (elapsed > 0 && n > 0) lastTps = n * 1000.0 / elapsed
-            EdgeLMHttpServer.GenStats(n, elapsed)
+            val ttft = if (firstTokenNs > 0L) (firstTokenNs - startNs) / 1_000_000L else 0L
+            EdgeLMHttpServer.GenStats(n, elapsed, ttft)
         } finally {
             runCatching { hint?.close() }                                    // release the hint session
             runCatching { android.os.Process.setThreadPriority(prevPrio) }   // restore worker prio
@@ -408,17 +484,197 @@ class EdgeLMService : Service() {
         http = EdgeLMHttpServer(
             port = HTTP_PORT,
             // HTTP path is stateless (OpenAI clients resend full history) -> no session,
-            // and defaults to BATCH priority (no UI foreground signal).
+            // and defaults to BATCH priority (no UI foreground signal). Gated by the
+            // same broker as Binder callers, via the loopback pseudo-identity (Part 7).
             infer = { _, prompt, onToken, isCancelled ->
-                runInference("", prompt, AIScheduler.Priority.BATCH,
-                    "OpenAI HTTP client", onToken, isCancelled)
+                val d = broker.checkHttp(CapabilityBroker.Capability.CHAT)
+                if (d is CapabilityBroker.Decision.Deny)
+                    throw SecurityException("EdgeLM: ${d.reason}")
+                dispatchInference("", prompt, AIScheduler.Priority.BATCH,
+                    "OpenAI HTTP client", android.os.Process.myUid(), onToken, isCancelled)
             },
             warmModels = { warmModels() },
+            edgeCatalog = { edgeCatalogJson() },
+            edgePull = { model -> edgePull(model) },
+            edgePin = { model, pinned -> edgePin(model, pinned) },
+            edgeBatchedTest = {
+                BatchedTest.run(applicationContext)
+                org.json.JSONObject()
+                    .put("status", "started")
+                    .put("note", "watch logcat tag 'edgelm-batched-test'; needs a -DEDGELM_BATCHED build")
+                    .toString()
+            },
+            edgeBatchedMode = { on -> setBatchedMode(on) },
+            embeddings = { inputs -> edgeEmbeddings(inputs) },
+            vectors = { op, body -> edgeVectors(op, body) },
         ).also { server ->
             runCatching { server.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false) }
                 .onSuccess { Log.i(TAG, "HTTP shim on http://127.0.0.1:$HTTP_PORT/v1") }
                 .onFailure { e -> Log.e(TAG, "HTTP shim failed to start", e) }
         }
+    }
+
+    // ---- Hub control surface for the CLI (Part 10/13) -------------------------
+
+    /** Catalog JSON: every model + its installed/active/version/family/pinned state. */
+    private fun edgeCatalogJson(): String {
+        val active = ModelStore.activeId(this)
+        val arr = org.json.JSONArray()
+        ModelCatalog.models.forEach { spec ->
+            arr.put(org.json.JSONObject()
+                .put("id", spec.id)
+                .put("name", spec.name)
+                .put("params", spec.params)
+                .put("size_mb", spec.sizeMb)
+                .put("version", spec.version)
+                .put("kind", spec.kind)
+                .put("family", ai.edgelm.runtime.Hub.familyOf(spec))
+                .put("installed", ModelStore.isInstalled(this, spec.id))
+                .put("active", spec.id == active)
+                .put("pinned_version", ai.edgelm.runtime.Hub.pinnedVersion(this, spec.id) ?: -1))
+        }
+        return org.json.JSONObject().put("models", arr).toString()
+    }
+
+    /** Resolve [model] (id / id@ver / family:…) via Hub, then enqueue a durable download. */
+    private fun edgePull(model: String): String {
+        val spec = ai.edgelm.runtime.Hub.resolve(this, model)
+            ?: return org.json.JSONObject()
+                .put("error", "could not resolve '$model' to a device-fit model").toString()
+        val req = androidx.work.OneTimeWorkRequestBuilder<ai.edgelm.runtime.DownloadWorker>()
+            .setInputData(androidx.work.workDataOf(ai.edgelm.runtime.DownloadWorker.KEY_ID to spec.id))
+            .addTag(ai.edgelm.runtime.DownloadWorker.TAG_PREFIX + spec.id)
+            .build()
+        androidx.work.WorkManager.getInstance(this)
+            .enqueueUniqueWork(ai.edgelm.runtime.DownloadWorker.UNIQUE,
+                androidx.work.ExistingWorkPolicy.KEEP, req)
+        return org.json.JSONObject()
+            .put("id", spec.id).put("name", spec.name)
+            .put("size_mb", spec.sizeMb).put("status", "enqueued").toString()
+    }
+
+    /** Pin/unpin [model] to its installed version (Hub rollback support). */
+    private fun edgePin(model: String, pinned: Boolean): String {
+        if (ModelCatalog.byId(model) == null)
+            return org.json.JSONObject().put("error", "unknown model '$model'").toString()
+        if (pinned) ai.edgelm.runtime.Hub.pin(this, model) else ai.edgelm.runtime.Hub.unpin(this, model)
+        return org.json.JSONObject()
+            .put("id", model).put("pinned", pinned)
+            .put("pinned_version", ai.edgelm.runtime.Hub.pinnedVersion(this, model) ?: -1).toString()
+    }
+
+    // ---- Embeddings (Phase 2) -------------------------------------------------
+
+    // A second resident model (the embedding encoder), independent of the chat model.
+    @Volatile private var embedHandle: Long = 0
+    private val embedLock = Any()   // the embedding context is single-threaded
+
+    /** Lazily load the catalog's embedding model (if installed). Returns handle or 0. */
+    @Synchronized private fun ensureEmbedModelLoaded(): Long {
+        if (embedHandle != 0L) return embedHandle
+        val spec = ModelCatalog.embeddingModel() ?: return 0
+        val file = ModelStore.installedFile(this, spec.id) ?: return 0
+        embedHandle = NativeBridge.loadEmbeddingModel(file.absolutePath)
+        if (embedHandle != 0L) Log.i(TAG, "embedding model loaded: ${spec.id} (dim=${NativeBridge.embedDim(embedHandle)})")
+        return embedHandle
+    }
+
+    /** OpenAI /v1/embeddings: gate EMBED, embed each input, return the response JSON. */
+    private fun edgeEmbeddings(inputs: List<String>): String {
+        val d = broker.checkHttp(CapabilityBroker.Capability.EMBED)
+        if (d is CapabilityBroker.Decision.Deny)
+            return org.json.JSONObject().put("error", "EdgeLM: ${d.reason}").toString()
+        val h = ensureEmbedModelLoaded()
+        if (h == 0L) return org.json.JSONObject()
+            .put("error", "embedding model not installed — run: edgelm pull bge-small-en-v1.5").toString()
+
+        val data = org.json.JSONArray()
+        var approxTokens = 0
+        synchronized(embedLock) {
+            inputs.forEachIndexed { i, text ->
+                val vec = NativeBridge.embed(h, text)
+                    ?: return org.json.JSONObject().put("error", "embedding failed at index $i").toString()
+                val arr = org.json.JSONArray()
+                vec.forEach { arr.put(it.toDouble()) }
+                data.put(org.json.JSONObject().put("object", "embedding").put("index", i).put("embedding", arr))
+                approxTokens += text.length / 4
+            }
+        }
+        return org.json.JSONObject()
+            .put("object", "list")
+            .put("data", data)
+            .put("model", ModelCatalog.embeddingModel()?.id ?: "embedding")
+            .put("usage", org.json.JSONObject().put("prompt_tokens", approxTokens).put("total_tokens", approxTokens))
+            .toString()
+    }
+
+    // ---- On-device vector index + RAG (Phase 2) -------------------------------
+
+    private val vectorStore by lazy { VectorStore(File(filesDir, "vectors")) }
+
+    private fun errJson(msg: String) = JSONObject().put("error", msg).toString()
+
+    /** Embed one string via the resident embed model (single-threaded), or null. */
+    private fun embedOne(text: String): FloatArray? {
+        if (ensureEmbedModelLoaded() == 0L) return null
+        return synchronized(embedLock) { NativeBridge.embed(embedHandle, text) }
+    }
+
+    /** /v1/edge/vectors/<op>: local semantic store + search, namespaced + EMBED-gated. */
+    private fun edgeVectors(op: String, body: String): String {
+        val d = broker.checkHttp(CapabilityBroker.Capability.EMBED)
+        if (d is CapabilityBroker.Decision.Deny) return errJson("EdgeLM: ${d.reason}")
+        val ns = CapabilityBroker.HTTP_PSEUDO_PACKAGE   // per-app isolation (loopback identity here)
+        return try {
+            when (op) {
+                "upsert" -> {
+                    val o = JSONObject(body)
+                    val col = o.optString("collection", "default")
+                    val items = o.optJSONArray("items") ?: JSONArray()
+                    if (ensureEmbedModelLoaded() == 0L)
+                        return errJson("embedding model not installed — run: edgelm pull bge-small-en-v1.5")
+                    var n = 0
+                    for (i in 0 until items.length()) {
+                        val it = items.getJSONObject(i)
+                        val text = it.optString("text"); if (text.isBlank()) continue
+                        val id = it.optString("id").ifBlank { "doc-${System.nanoTime()}-$i" }
+                        val meta = it.optJSONObject("metadata")?.toString() ?: ""
+                        val vec = embedOne(text) ?: return errJson("embedding failed")
+                        vectorStore.upsert(ns, col, id, text, meta, vec); n++
+                    }
+                    JSONObject().put("collection", col).put("upserted", n).toString()
+                }
+                "query" -> {
+                    val o = JSONObject(body)
+                    val col = o.optString("collection", "default")
+                    val q = o.optString("query"); if (q.isBlank()) return errJson("missing 'query'")
+                    if (ensureEmbedModelLoaded() == 0L)
+                        return errJson("embedding model not installed — run: edgelm pull bge-small-en-v1.5")
+                    val qv = embedOne(q) ?: return errJson("embedding failed")
+                    val hits = vectorStore.query(ns, col, qv, o.optInt("top_k", 5))
+                    val arr = JSONArray()
+                    hits.forEach { arr.put(JSONObject().put("id", it.id).put("score", it.score.toDouble())
+                        .put("text", it.text).put("metadata", it.meta)) }
+                    JSONObject().put("collection", col).put("matches", arr).toString()
+                }
+                "delete" -> {
+                    val o = JSONObject(body)
+                    val col = o.optString("collection", "default")
+                    val idsArr = o.optJSONArray("ids") ?: JSONArray()
+                    val ids = (0 until idsArr.length()).map { idsArr.getString(it) }.toSet()
+                    vectorStore.delete(ns, col, ids)
+                    JSONObject().put("collection", col).put("deleted", ids.size).toString()
+                }
+                "collections" -> {
+                    val arr = JSONArray()
+                    vectorStore.collections(ns).forEach {
+                        arr.put(JSONObject().put("name", it.first).put("count", it.second))
+                    }
+                    JSONObject().put("collections", arr).toString()
+                }
+                else -> errJson("unknown vectors op '$op'")
+            }
+        } catch (t: Throwable) { errJson(t.message ?: "vectors error") }
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -431,7 +687,36 @@ class EdgeLMService : Service() {
             val cancelFlag = AtomicBoolean(false)
             cancelled[id] = cancelFlag
             // Must read the caller's uid on the Binder thread, not the worker.
-            val caller = appLabel(Binder.getCallingUid())
+            val uid = Binder.getCallingUid()
+            val caller = appLabel(uid)
+
+            // ---- Permission gate (Part 7) -------------------------------------
+            // Every request needs CHAT. Requests submitted at a non-foreground
+            // priority additionally need BACKGROUND_INFERENCE — running inference
+            // while not the foreground app is the battery-abuse vector we consent-gate.
+            val prio = AIScheduler.Priority.of(priority)
+            when (val d = broker.check(uid, CapabilityBroker.Capability.CHAT)) {
+                is CapabilityBroker.Decision.Deny -> {
+                    callback.onError("EdgeLM: ${d.reason}"); cancelled.remove(id); return id
+                }
+                is CapabilityBroker.Decision.NeedsConsent -> {
+                    callback.onError("EdgeLM: consent required for '${d.capability.id}' — " +
+                        "call EdgeLM.permissions().request(...)"); cancelled.remove(id); return id
+                }
+                CapabilityBroker.Decision.Allow -> { /* proceed */ }
+            }
+            if (prio == AIScheduler.Priority.BATCH || prio == AIScheduler.Priority.BACKGROUND) {
+                val d = broker.check(uid, CapabilityBroker.Capability.BACKGROUND_INFERENCE)
+                if (d !is CapabilityBroker.Decision.Allow) {
+                    val msg = when (d) {
+                        is CapabilityBroker.Decision.Deny -> d.reason
+                        is CapabilityBroker.Decision.NeedsConsent ->
+                            "consent required for 'background_inference' — call EdgeLM.permissions().request(...)"
+                        else -> "background inference not permitted"
+                    }
+                    callback.onError("EdgeLM: $msg"); cancelled.remove(id); return id
+                }
+            }
 
             worker.execute {
                 if (session == null && currentModelPath().isEmpty()) {
@@ -439,11 +724,12 @@ class EdgeLMService : Service() {
                     cancelled.remove(id); return@execute
                 }
                 try {
-                    val stats = runInference(
+                    val stats = dispatchInference(
                         sessionId,
                         prompt,
                         AIScheduler.Priority.of(priority),
                         caller,
+                        uid,
                         onToken = { runCatching { callback.onTokens(it) } },
                         isCancelled = { cancelFlag.get() },
                     )
@@ -469,10 +755,21 @@ class EdgeLMService : Service() {
         override fun unloadModel(): Boolean = unloadModelLocked()
 
         override fun prepareEngine(): String = this@EdgeLMService.ensureLoadedLocked()
+
+        override fun hasCapability(capability: String?): Boolean {
+            val cap = CapabilityBroker.Capability.byId(capability) ?: return false
+            // UID resolved on the Binder thread — the caller can only ask about itself.
+            return broker.isGranted(Binder.getCallingUid(), cap)
+        }
+
+        override fun capabilityNeedsConsent(capability: String?): Boolean =
+            CapabilityBroker.Capability.byId(capability)?.risk == CapabilityBroker.Risk.HIGH
     }
 
     override fun onDestroy() {
         runCatching { http?.stop() }
+        runCatching { batchedSession?.shutdown() }; batchedSession = null
+        if (embedHandle != 0L) { runCatching { NativeBridge.unloadModel(embedHandle) }; embedHandle = 0 }
         cancelIdleUnload(); idleExecutor.shutdownNow()
         worker.shutdownNow()
         session?.let { engine.unload(it) }

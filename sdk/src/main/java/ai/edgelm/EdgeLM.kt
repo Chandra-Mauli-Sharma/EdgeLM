@@ -82,6 +82,43 @@ object EdgeLM {
     suspend fun warmModels(): List<String> =
         (connection ?: error("not initialized")).warmModels()
 
+    /** AI capability ids for [permissions]. Match the manifest `ai.edgelm.*` permissions. */
+    const val CAP_CHAT = "chat"
+    const val CAP_EMBED = "embed"
+    const val CAP_VISION = "vision"
+    const val CAP_BACKGROUND_INFERENCE = "background_inference"
+
+    /**
+     * Permission facade (arch doc Part 7). Low-risk capabilities (chat/embed/vision)
+     * are grant-on-first-use — you don't need to request them. High-risk ones
+     * (background_inference) require [Permissions.request], which launches the EdgeLM
+     * consent screen; re-check [Permissions.has] afterwards.
+     */
+    fun permissions(): Permissions =
+        Permissions(connection ?: error("Call EdgeLM.initialize(context) first"))
+
+    class Permissions internal constructor(private val conn: RuntimeConnection) {
+        /** Does this app currently hold [capability]? */
+        suspend fun has(capability: String): Boolean = conn.hasCapability(capability)
+
+        /** Is [capability] high-risk (needs [request] + user consent) vs grant-on-first-use? */
+        suspend fun needsConsent(capability: String): Boolean = conn.capabilityNeedsConsent(capability)
+
+        /**
+         * Launch the EdgeLM consent screen for a high-risk [capability]. Fire-and-forget;
+         * poll [has] afterwards (e.g. in onResume) to see the user's decision. No-op-safe:
+         * if the runtime isn't installed the Intent simply won't resolve.
+         */
+        fun request(context: Context, capability: String) {
+            val intent = Intent("ai.edgelm.REQUEST_CAPABILITY")
+                .setPackage(RUNTIME_PACKAGE)
+                .putExtra("ai.edgelm.extra.CAPABILITY", capability)
+                .putExtra("ai.edgelm.extra.PACKAGE", context.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            runCatching { context.startActivity(intent) }
+        }
+    }
+
     fun shutdown() {
         connection?.unbind()
         connection = null

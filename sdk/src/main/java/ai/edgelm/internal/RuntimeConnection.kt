@@ -106,4 +106,12 @@ internal class RuntimeConnection(private val context: Context) {
     }
 
     suspend fun warmModels(): List<String> = awaitService().warmModels().toList()
+
+    /** Does the calling app currently hold [capability]? (Binder resolves our own UID.) */
+    suspend fun hasCapability(capability: String): Boolean =
+        runCatching { awaitService().hasCapability(capability) }.getOrDefault(false)
+
+    /** True if [capability] is high-risk and requires launching the consent UI first. */
+    suspend fun capabilityNeedsConsent(capability: String): Boolean =
+        runCatching { awaitService().capabilityNeedsConsent(capability) }.getOrDefault(false)
 }

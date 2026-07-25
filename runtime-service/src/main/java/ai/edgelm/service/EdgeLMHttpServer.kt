@@ -20,18 +20,30 @@ import java.util.concurrent.atomic.AtomicBoolean
  *   GET  /v1/models
  *   GET  /health
  *
- * SECURITY (spike-level): loopback only, no auth, and the caller's app identity
- * is lost here (unlike Binder, which carries the UID). Phase 1+ gates this behind
- * the permission broker; for now it's a localhost dev convenience.
+ * SECURITY: loopback only, and the caller's app identity is lost here (unlike
+ * Binder, which carries the UID). As of Phase 1 the [infer] callback routes through
+ * the CapabilityBroker under a single loopback pseudo-identity (Part 7), so a denied
+ * CHAT capability throws before any generation. The shim is DEBUG-only (see
+ * EdgeLMService.startHttpShim) — release builds are Binder-only.
  */
 class EdgeLMHttpServer(
     port: Int,
     private val infer: (model: String, prompt: String,
                         onToken: (String) -> Unit, isCancelled: () -> Boolean) -> GenStats,
     private val warmModels: () -> List<String>,
+    // Hub control surface (arch doc Part 10/13) — each returns a JSON string.
+    private val edgeCatalog: () -> String = { "{\"models\":[]}" },
+    private val edgePull: (model: String) -> String = { "{\"error\":\"pull unavailable\"}" },
+    private val edgePin: (model: String, pinned: Boolean) -> String = { _, _ -> "{\"error\":\"pin unavailable\"}" },
+    private val edgeBatchedTest: () -> String = { "{\"error\":\"batched test unavailable\"}" },
+    private val edgeBatchedMode: (on: Boolean) -> String = { "{\"error\":\"batched mode unavailable\"}" },
+    // OpenAI /v1/embeddings: takes the input strings, returns the full response JSON.
+    private val embeddings: (inputs: List<String>) -> String = { "{\"error\":\"embeddings unavailable\"}" },
+    // On-device vector index: op = upsert|query|delete|collections, raw request body.
+    private val vectors: (op: String, body: String) -> String = { _, _ -> "{\"error\":\"vectors unavailable\"}" },
 ) : NanoHTTPD("127.0.0.1", port) {
 
-    data class GenStats(val tokenCount: Int, val elapsedMs: Long)
+    data class GenStats(val tokenCount: Int, val elapsedMs: Long, val ttftMs: Long = 0)
 
     override fun serve(session: IHTTPSession): Response {
         return try {
@@ -44,6 +56,42 @@ class EdgeLMHttpServer(
 
                 session.method == Method.POST && session.uri == "/v1/chat/completions" ->
                     chatCompletions(session)
+
+                session.method == Method.POST && session.uri == "/v1/embeddings" -> {
+                    val inputs = parseInputs(JSONObject(readBody(session)))
+                    if (inputs.isEmpty()) badRequest("missing 'input'") else raw(embeddings(inputs))
+                }
+
+                // On-device vector index / RAG: /v1/edge/vectors/{upsert,query,delete,collections}
+                session.uri.startsWith("/v1/edge/vectors/") -> {
+                    val op = session.uri.removePrefix("/v1/edge/vectors/")
+                    val body = if (session.method == Method.POST) readBody(session) else "{}"
+                    raw(vectors(op, body))
+                }
+
+                // ---- Hub control surface (Part 10/13) ----
+                session.method == Method.GET && session.uri == "/v1/edge/models" ->
+                    raw(edgeCatalog())
+
+                session.method == Method.POST && session.uri == "/v1/edge/pull" -> {
+                    val model = JSONObject(readBody(session)).optString("model")
+                    if (model.isBlank()) badRequest("missing 'model'") else raw(edgePull(model))
+                }
+
+                session.method == Method.POST && session.uri == "/v1/edge/pin" -> {
+                    val req = JSONObject(readBody(session))
+                    val model = req.optString("model")
+                    if (model.isBlank()) badRequest("missing 'model'")
+                    else raw(edgePin(model, req.optBoolean("pinned", true)))
+                }
+
+                // Increment 2 smoke test — kicks off BatchedTest; results stream to logcat.
+                session.method == Method.POST && session.uri == "/v1/edge/batched-test" ->
+                    raw(edgeBatchedTest())
+
+                // Toggle the persistent batched engine for live requests.
+                session.method == Method.POST && session.uri == "/v1/edge/batched-mode" ->
+                    raw(edgeBatchedMode(JSONObject(readBody(session)).optBoolean("on", true)))
 
                 else -> newFixedLengthResponse(
                     Response.Status.NOT_FOUND, "application/json",
@@ -133,7 +181,9 @@ class EdgeLMHttpServer(
             .put("usage", JSONObject()
                 .put("completion_tokens", stats.tokenCount)
                 .put("total_tokens", stats.tokenCount))
-            .put("edge", JSONObject().put("elapsed_ms", stats.elapsedMs))  // EdgeLM extension
+            .put("edge", JSONObject()                                       // EdgeLM extension
+                .put("elapsed_ms", stats.elapsedMs)
+                .put("ttft_ms", stats.ttftMs))                              // time-to-first-token
         return json(payload)
     }
 
@@ -151,6 +201,14 @@ class EdgeLMHttpServer(
         return sb.toString().trim()
     }
 
+    /** OpenAI embeddings `input`: a single string or an array of strings → List<String>. */
+    private fun parseInputs(req: JSONObject): List<String> {
+        val arr = req.optJSONArray("input")
+        if (arr != null) return (0 until arr.length()).map { arr.getString(it) }.filter { it.isNotBlank() }
+        val s = req.optString("input", "")
+        return if (s.isBlank()) emptyList() else listOf(s)
+    }
+
     private fun readBody(session: IHTTPSession): String {
         val files = HashMap<String, String>()
         session.parseBody(files)                 // for application/json, body -> "postData"
@@ -163,4 +221,12 @@ class EdgeLMHttpServer(
 
     private fun json(obj: JSONObject): Response =
         newFixedLengthResponse(Response.Status.OK, "application/json", obj.toString())
+
+    /** Return a pre-serialized JSON string (from the Hub control callbacks). */
+    private fun raw(jsonStr: String): Response =
+        newFixedLengthResponse(Response.Status.OK, "application/json", jsonStr)
+
+    private fun badRequest(msg: String): Response =
+        newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
+            JSONObject().put("error", msg).toString())
 }

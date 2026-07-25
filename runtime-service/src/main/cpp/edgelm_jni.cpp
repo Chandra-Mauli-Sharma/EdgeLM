@@ -1,6 +1,10 @@
 #include <jni.h>
 #include <string>
+#include <vector>
 #include "llama_runner.h"
+#ifdef EDGELM_BATCHED
+#include "batched_runner.h"
+#endif
 
 // JNI bindings for ai.edgelm.service.NativeBridge (a Kotlin `object`).
 //
@@ -122,6 +126,173 @@ Java_ai_edgelm_service_NativeBridge_attachDraft(JNIEnv* env, jobject, jlong hand
     const bool ok = edgelm::attach_draft(m, p ? p : "");
     if (p) env->ReleaseStringUTFChars(jpath, p);
     return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+// Increment 2 (continuous batching) test entry. Always present so the Kotlin external
+// resolves; the real engine is compiled only with -DEDGELM_BATCHED=ON, otherwise this
+// returns 0. Submits every prompt on its own sequence and drives one batched decode
+// loop, streaming each sequence's tokens back via sink.onChunk(seq, text). Runs on THIS
+// thread, so the cached env is valid throughout (no AttachCurrentThread needed).
+JNIEXPORT jint JNICALL
+Java_ai_edgelm_service_NativeBridge_batchedRunTest(JNIEnv* env, jobject,
+                                                   jlong handle, jobjectArray jprompts, jobject jsink) {
+#ifdef EDGELM_BATCHED
+    auto* m = reinterpret_cast<edgelm::Model*>(handle);
+    if (!m || !jprompts || !jsink) return 0;
+
+    const jsize n = env->GetArrayLength(jprompts);
+    std::vector<std::string> prompts;
+    prompts.reserve(n);
+    for (jsize i = 0; i < n; ++i) {
+        auto js = (jstring)env->GetObjectArrayElement(jprompts, i);
+        prompts.push_back(jstring_to_utf8(env, js));
+        if (js) env->DeleteLocalRef(js);
+    }
+
+    jobject   gsink   = env->NewGlobalRef(jsink);
+    jclass    cls     = env->GetObjectClass(jsink);
+    jmethodID onChunk = env->GetMethodID(cls, "onChunk", "(ILjava/lang/String;)V");
+
+    auto on_chunk = [env, gsink, onChunk](int seq, const std::string& text) {
+        jstring js = utf8_to_jstring(env, text);
+        if (js) { env->CallVoidMethod(gsink, onChunk, (jint)seq, js); env->DeleteLocalRef(js); }
+    };
+
+    const int produced = edgelm::run_batched_test(m, prompts, on_chunk);
+    env->DeleteGlobalRef(gsink);
+    return produced;
+#else
+    (void)env; (void)handle; (void)jprompts; (void)jsink;
+    return 0;   // built without -DEDGELM_BATCHED
+#endif
+}
+
+// ---- Embeddings (Phase 2) ---------------------------------------------------
+
+JNIEXPORT jlong JNICALL
+Java_ai_edgelm_service_NativeBridge_loadEmbeddingModel(JNIEnv* env, jobject, jstring jpath) {
+    const char* path = env->GetStringUTFChars(jpath, nullptr);
+    edgelm::Model* m = edgelm::load_embedding_model(path);
+    env->ReleaseStringUTFChars(jpath, path);
+    return reinterpret_cast<jlong>(m);
+}
+
+JNIEXPORT jint JNICALL
+Java_ai_edgelm_service_NativeBridge_embedDim(JNIEnv*, jobject, jlong handle) {
+    return edgelm::embed_dim(reinterpret_cast<edgelm::Model*>(handle));
+}
+
+JNIEXPORT jfloatArray JNICALL
+Java_ai_edgelm_service_NativeBridge_embed(JNIEnv* env, jobject, jlong handle, jstring jtext) {
+    auto* m = reinterpret_cast<edgelm::Model*>(handle);
+    if (!m) return nullptr;
+    std::string text = jstring_to_utf8(env, jtext);
+    std::vector<float> vec;
+    const int dim = edgelm::embed(m, text, vec);
+    if (dim <= 0) return nullptr;
+    jfloatArray arr = env->NewFloatArray(dim);
+    if (!arr) return nullptr;
+    env->SetFloatArrayRegion(arr, 0, dim, vec.data());
+    return arr;
+}
+
+// ---- Increment 2 service integration: persistent BatchedRuntime -------------
+// All guarded; stubs when -DEDGELM_BATCHED is off so the Kotlin externals still link.
+
+JNIEXPORT jlong JNICALL
+Java_ai_edgelm_service_NativeBridge_batchedCreate(JNIEnv*, jobject, jlong modelHandle, jint pool, jint nctx) {
+#ifdef EDGELM_BATCHED
+    auto* m = reinterpret_cast<edgelm::Model*>(modelHandle);
+    return reinterpret_cast<jlong>(edgelm::create_batched(m, (int)pool, (int)nctx));
+#else
+    (void)modelHandle; (void)pool; (void)nctx; return 0;
+#endif
+}
+
+JNIEXPORT jboolean JNICALL
+Java_ai_edgelm_service_NativeBridge_batchedSubmit(JNIEnv* env, jobject, jlong rtHandle,
+                                                  jint uid, jstring jsid, jstring jprompt, jobject jsink) {
+#ifdef EDGELM_BATCHED
+    auto* rt = reinterpret_cast<edgelm::BatchedRuntime*>(rtHandle);
+    if (!rt || !jsink) return JNI_FALSE;
+    std::string sid    = jstring_to_utf8(env, jsid);
+    std::string prompt = jstring_to_utf8(env, jprompt);
+
+    jobject   gsink   = env->NewGlobalRef(jsink);
+    jclass    cls     = env->GetObjectClass(jsink);
+    jmethodID onChunk = env->GetMethodID(cls, "onChunk", "(Ljava/lang/String;)V");
+    jmethodID onDone  = env->GetMethodID(cls, "onDone", "(I)V");
+    jmethodID isCanc  = env->GetMethodID(cls, "isCancelled", "()Z");
+
+    // These fire from the driver thread (batchedStep). Attach it to the JVM to get an env.
+    auto get_env = []() -> JNIEnv* {
+        JNIEnv* e = nullptr;
+        return (g_vm->AttachCurrentThread(&e, nullptr) == JNI_OK) ? e : nullptr;
+    };
+
+    edgelm::Sink s;
+    s.emit_chunk = [gsink, onChunk, get_env](const std::string& t) {
+        JNIEnv* e = get_env(); if (!e) return;
+        jstring js = utf8_to_jstring(e, t);
+        if (js) { e->CallVoidMethod(gsink, onChunk, js); e->DeleteLocalRef(js); }
+    };
+    s.is_cancelled = [gsink, isCanc, get_env]() -> bool {
+        JNIEnv* e = get_env(); if (!e) return false;
+        return e->CallBooleanMethod(gsink, isCanc) == JNI_TRUE;
+    };
+    s.on_done = [gsink, onDone, get_env](int n) {
+        JNIEnv* e = get_env(); if (!e) return;
+        e->CallVoidMethod(gsink, onDone, (jint)n);
+        e->DeleteGlobalRef(gsink);                  // last use of the sink — free the global ref
+    };
+
+    const bool ok = rt->submit((uint32_t)uid, sid, prompt, s);
+    if (!ok) env->DeleteGlobalRef(gsink);           // not queued → free now (lambdas won't run)
+    return ok ? JNI_TRUE : JNI_FALSE;
+#else
+    (void)env; (void)rtHandle; (void)uid; (void)jsid; (void)jprompt; (void)jsink; return JNI_FALSE;
+#endif
+}
+
+JNIEXPORT jint JNICALL
+Java_ai_edgelm_service_NativeBridge_batchedStep(JNIEnv*, jobject, jlong rtHandle) {
+#ifdef EDGELM_BATCHED
+    auto* rt = reinterpret_cast<edgelm::BatchedRuntime*>(rtHandle);
+    return rt ? rt->step() : 0;
+#else
+    (void)rtHandle; return 0;
+#endif
+}
+
+JNIEXPORT void JNICALL
+Java_ai_edgelm_service_NativeBridge_batchedPause(JNIEnv* env, jobject, jlong rtHandle,
+                                                 jint uid, jstring jsid, jboolean paused) {
+#ifdef EDGELM_BATCHED
+    auto* rt = reinterpret_cast<edgelm::BatchedRuntime*>(rtHandle);
+    if (rt) rt->set_paused((uint32_t)uid, jstring_to_utf8(env, jsid), paused == JNI_TRUE);
+#else
+    (void)env; (void)rtHandle; (void)uid; (void)jsid; (void)paused;
+#endif
+}
+
+JNIEXPORT void JNICALL
+Java_ai_edgelm_service_NativeBridge_batchedCancel(JNIEnv* env, jobject, jlong rtHandle,
+                                                  jint uid, jstring jsid) {
+#ifdef EDGELM_BATCHED
+    auto* rt = reinterpret_cast<edgelm::BatchedRuntime*>(rtHandle);
+    if (rt) rt->cancel((uint32_t)uid, jstring_to_utf8(env, jsid));
+#else
+    (void)env; (void)rtHandle; (void)uid; (void)jsid;
+#endif
+}
+
+JNIEXPORT void JNICALL
+Java_ai_edgelm_service_NativeBridge_batchedDestroy(JNIEnv*, jobject, jlong rtHandle) {
+#ifdef EDGELM_BATCHED
+    delete reinterpret_cast<edgelm::BatchedRuntime*>(rtHandle);
+#else
+    (void)rtHandle;
+#endif
 }
 
 } // extern "C"

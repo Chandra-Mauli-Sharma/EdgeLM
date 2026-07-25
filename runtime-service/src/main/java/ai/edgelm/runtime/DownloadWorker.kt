@@ -96,13 +96,34 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                     }
                 }
             }
+            // Hub integrity gate (Part 10): a completed download must match its content
+            // address before we install it. A tampered/corrupt artifact is deleted and the
+            // job fails rather than loading untrusted weights. Legacy entries without a
+            // published hash pass as UNVERIFIED (logged), so nothing regresses.
+            when (val v = Hub.verify(tmp, spec, artifact.format)) {
+                is Hub.Verification.Mismatch -> {
+                    tmp.delete()
+                    return@withContext Result.failure(workDataOf(
+                        KEY_ID to id,
+                        KEY_ERROR to "integrity check failed — file does not match expected SHA-256 (expected ${v.expected.take(12)}…, got ${v.actual.take(12)}…)"
+                    ))
+                }
+                Hub.Verification.Unverified, Hub.Verification.Ok -> { /* install */ }
+            }
+
             if (!tmp.renameTo(dest)) throw IllegalStateException("could not finalize file")
 
-            ModelStore.setActive(applicationContext, spec.id)          // newly downloaded => active
-            runCatching {                                              // best-effort warm the runtime
-                applicationContext.startService(
-                    Intent(applicationContext, EdgeLMService::class.java).setAction("ai.edgelm.action.LOAD")
-                )
+            Hub.recordInstalledVersion(applicationContext, spec.id, spec.version)
+            // Only chat models become the active generation model + warm the runtime. An
+            // embedding model is a separate resident model (loaded on first /v1/embeddings),
+            // so downloading it must NOT hijack the active chat model.
+            if (spec.kind == "chat") {
+                ModelStore.setActive(applicationContext, spec.id)      // newly downloaded => active
+                runCatching {                                          // best-effort warm the runtime
+                    applicationContext.startService(
+                        Intent(applicationContext, EdgeLMService::class.java).setAction("ai.edgelm.action.LOAD")
+                    )
+                }
             }
             Result.success(workDataOf(KEY_ID to id))
         } catch (t: Throwable) {

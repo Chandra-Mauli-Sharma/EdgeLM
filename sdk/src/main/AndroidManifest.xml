@@ -15,5 +15,17 @@
       (Defined by the runtime app with protectionLevel="normal", granted at install.)
     -->
     <uses-permission android:name="ai.edgelm.permission.USE_RUNTIME" />
+
+    <!--
+      Baseline AI capability. The runtime's CapabilityBroker requires an app to
+      DECLARE the capability it uses; CHAT is the common case, so the SDK declares it
+      for every consumer via manifest merge (grant-on-first-use means no prompt) —
+      keeping the "one import, five minutes to first token" promise. Apps that use
+      higher-risk capabilities declare those themselves:
+        <uses-permission android:name="ai.edgelm.BACKGROUND_INFERENCE" />  (consent-gated)
+        <uses-permission android:name="ai.edgelm.VISION" />
+        <uses-permission android:name="ai.edgelm.EMBED" />
+    -->
+    <uses-permission android:name="ai.edgelm.CHAT" />
 </manifest>
 

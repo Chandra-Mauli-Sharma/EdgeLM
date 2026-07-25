@@ -31,11 +31,50 @@
          the permission too. -->
     <uses-permission android:name="ai.edgelm.permission.USE_RUNTIME" />
 
+    <!-- Phase 1 capability permissions (arch doc Part 7). These are the fine-grained
+         AI capabilities an app declares to state INTENT (auditable on its Play
+         listing). protectionLevel="normal" so they're install-granted and visible;
+         EdgeLM's CapabilityBroker layers the actual runtime grant/deny/consent on
+         top (grant-on-first-use for low-risk; explicit consent for high-risk). An
+         app must <uses-permission> the matching capability before the broker allows
+         it — declaration is necessary but not sufficient. -->
+    <permission android:name="ai.edgelm.CHAT" android:protectionLevel="normal"
+        android:label="On-device AI chat (EdgeLM)"
+        android:description="@string/perm_chat_desc" />
+    <permission android:name="ai.edgelm.EMBED" android:protectionLevel="normal"
+        android:label="On-device AI embeddings (EdgeLM)"
+        android:description="@string/perm_embed_desc" />
+    <permission android:name="ai.edgelm.VISION" android:protectionLevel="normal"
+        android:label="On-device AI vision (EdgeLM)"
+        android:description="@string/perm_vision_desc" />
+    <permission android:name="ai.edgelm.BACKGROUND_INFERENCE" android:protectionLevel="normal"
+        android:label="Background on-device AI (EdgeLM)"
+        android:description="@string/perm_background_desc" />
+
+    <!-- The runtime app holds CHAT itself (its Playground uses the shared engine). -->
+    <uses-permission android:name="ai.edgelm.CHAT" />
+
     <application
+        android:name="ai.edgelm.runtime.EdgeLMApp"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="EdgeLM Runtime"
         android:allowBackup="false">
+
+        <!-- Remove WorkManager's default auto-initializer so it initializes ON DEMAND via
+             EdgeLMApp (Configuration.Provider) instead. The default initializer only runs
+             in the main process, which breaks WorkManager.getInstance() in the :core
+             service (e.g. the shim's /v1/edge/pull). On-demand init works in every process. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
 
         <!-- LiteRT-LM GPU (OpenCL) backend needs these vendor libs at runtime (Phase B).
              required=false so devices without them still install and run on the CPU engine. -->
@@ -90,6 +129,22 @@
             android:name="ai.edgelm.runtime.OnboardingActivity"
             android:exported="false"
             android:theme="@style/Theme.EdgeLM.Runtime" />
+
+        <!-- Consent surface for high-risk capabilities (Part 7). Launched by an app
+             via EdgeLM.permissions().request(...) → action ai.edgelm.REQUEST_CAPABILITY.
+             exported=true so other apps can launch it for their own consent; it records
+             the decision for the resolved (referrer-verified) package. Excluded from
+             recents so it behaves like a system permission dialog. -->
+        <activity
+            android:name="ai.edgelm.runtime.PermissionConsentActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.EdgeLM.Runtime">
+            <intent-filter>
+                <action android:name="ai.edgelm.REQUEST_CAPABILITY" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
         <!-- Landing / status screen so the runtime is a real, openable, listable app. -->
         <activity

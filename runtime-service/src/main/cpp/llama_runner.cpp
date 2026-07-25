@@ -2,6 +2,9 @@
 #include "llama.h"
 #include "ggml-backend.h"   // device enumeration (diagnostic: is a Vulkan GPU present?)
 #include "ggml-cpu.h"       // ggml_threadpool_new/_free — pinned big-core decode threadpool
+#ifdef EDGELM_BATCHED
+#include "batched_runner.h" // increment 2: continuous-batching engine (opt-in build)
+#endif
 
 #include <android/log.h>
 #include <thread>
@@ -10,6 +13,7 @@
 #include <chrono>
 #include <fstream>
 #include <cstring>
+#include <cmath>
 
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "edgelm-native", __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "edgelm-native", __VA_ARGS__)
@@ -47,6 +51,8 @@ struct Model {
     // EXPERIMENTAL prompt-lookup decoding (no draft model). OFF unless a "<model>.lookup" sentinel
     // file exists next to the model. Enabling makes decode deterministic (greedy). See generate_lookup.
     bool           lookup = false;
+    // Loaded in embedding mode (context created with embeddings=true, mean pooling). embed() only.
+    bool           embedding = false;
 };
 
 static std::once_flag g_backend_once;
@@ -782,6 +788,90 @@ int generate(Model* m, const std::string& sessionId, const std::string& prompt, 
     m->session_past = n_pos;
     llama_sampler_free(smpl);   // context kept warm
     return produced;
+}
+
+#ifdef EDGELM_BATCHED
+// Service-integration factory: a persistent runtime sharing m's weights + threadpool.
+BatchedRuntime* create_batched(Model* m, int pool_size, int n_ctx_per_seq) {
+    if (!m || !m->model || pool_size <= 0) return nullptr;
+    return BatchedRuntime::create(m->model, pool_size, n_ctx_per_seq, m->threadpool);
+}
+
+// Increment 2 test driver. Shares the already-loaded weights (m->model) — no second copy
+// in RAM — and the pinned big-core threadpool. One sequence per prompt, one driver loop.
+int run_batched_test(Model* m, const std::vector<std::string>& prompts,
+                     const std::function<void(int, const std::string&)>& on_chunk,
+                     int n_ctx_per_seq) {
+    if (!m || !m->model || prompts.empty()) return 0;
+    const int pool = (int)prompts.size();
+    BatchedRuntime* rt = create_batched(m, pool, n_ctx_per_seq);
+    if (!rt) { LOGE("batched: create failed"); return 0; }
+    for (int i = 0; i < pool; ++i) {
+        Sink s;
+        s.emit_chunk   = [&on_chunk, i](const std::string& t) { on_chunk(i, t); };
+        s.is_cancelled = []() -> bool { return false; };
+        if (!rt->submit((uint32_t)(1000 + i), "batch-test-" + std::to_string(i), prompts[i], s))
+            LOGE("batched: submit %d failed", i);
+    }
+    rt->run_until_idle();     // interleaved decode across all sequences
+    delete rt;
+    return pool;
+}
+#endif
+
+// --- embeddings (Phase 2) ----------------------------------------------------
+
+Model* load_embedding_model(const char* path) {
+    ensure_backend();
+    llama_model_params mp = llama_model_default_params();
+    mp.n_gpu_layers = 0; mp.use_mmap = true;   // embedding encoders are small → CPU is fine
+    llama_model* lm = llama_model_load_from_file(path, mp);
+    if (!lm) { LOGE("embed model load failed: %s", path); return nullptr; }
+
+    auto* m = new Model();
+    m->model = lm; m->embedding = true; m->n_threads = 4; m->n_ctx = 512;
+
+    llama_context_params cp = llama_context_default_params();
+    cp.n_ctx           = m->n_ctx;
+    cp.n_threads       = m->n_threads;
+    cp.n_threads_batch = m->n_threads;
+    cp.embeddings      = true;                        // output embeddings, not logits
+    cp.pooling_type    = LLAMA_POOLING_TYPE_MEAN;     // sentence embedding = mean over tokens
+    m->ctx = llama_init_from_model(lm, cp);
+    if (!m->ctx) { LOGE("embed ctx init failed"); llama_model_free(lm); delete m; return nullptr; }
+    LOGI("embedding model loaded: %s (n_embd=%d)", path, llama_model_n_embd(lm));
+    return m;
+}
+
+int embed_dim(Model* m) { return (m && m->model) ? llama_model_n_embd(m->model) : 0; }
+
+int embed(Model* m, const std::string& text, std::vector<float>& out) {
+    if (!m || !m->model || !m->ctx || !m->embedding) return 0;
+    const llama_vocab* vocab  = llama_model_get_vocab(m->model);
+    const int          n_embd = llama_model_n_embd(m->model);
+
+    const int n = -llama_tokenize(vocab, text.c_str(), (int)text.size(), nullptr, 0, true, true);
+    if (n <= 0) { LOGE("embed: tokenize failed"); return 0; }
+    std::vector<llama_token> toks(n > m->n_ctx ? m->n_ctx : n);   // clamp to context
+    const int nt = (int)toks.size();
+    if (llama_tokenize(vocab, text.c_str(), (int)text.size(), toks.data(), nt, true, true) < 0) {
+        LOGE("embed: tokenize failed(2)"); return 0;
+    }
+
+    llama_memory_clear(llama_get_memory(m->ctx), /*data=*/true);
+    llama_batch b = llama_batch_get_one(toks.data(), nt);
+    if (llama_decode(m->ctx, b)) { LOGE("embed: decode failed"); return 0; }
+
+    const float* emb = llama_get_embeddings_seq(m->ctx, 0);   // pooled sentence embedding
+    if (!emb) emb = llama_get_embeddings(m->ctx);             // fallback (unpooled)
+    if (!emb) { LOGE("embed: no embeddings returned"); return 0; }
+
+    out.assign(emb, emb + n_embd);
+    // L2-normalize so cosine similarity == dot product (matches OpenAI's normalized vectors).
+    double norm = 0.0; for (float v : out) norm += (double)v * v;
+    norm = std::sqrt(norm);
+    if (norm > 0) for (auto& v : out) v = (float)(v / norm);
+    return n_embd;
 }
 
 void request_cancel(Model* m) { if (m) m->cancel = true; }

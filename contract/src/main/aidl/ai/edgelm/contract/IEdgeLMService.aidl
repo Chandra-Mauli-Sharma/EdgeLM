@@ -47,4 +47,25 @@ interface IEdgeLMService {
      *         or "" if no model is available. Appended at the end for ABI stability.
      */
     String prepareEngine();
+
+    /**
+     * Phase 1 permission broker (arch doc Part 7). Non-mutating query: does the
+     * CALLING app currently hold [capability]? The runtime resolves the capability
+     * from the kernel-verified Binder UID, so an app can only ask about itself.
+     * @param capability one of: "chat", "embed", "vision", "background_inference".
+     * @return true iff the caller declares the matching permission AND it is granted.
+     * Appended at the end for ABI stability — never reorder methods above this.
+     */
+    boolean hasCapability(String capability);
+
+    /**
+     * The Intent action an app uses to launch the consent screen for a high-risk
+     * capability: startActivity(new Intent("ai.edgelm.REQUEST_CAPABILITY")
+     *   .setPackage("ai.edgelm.runtime")
+     *   .putExtra("ai.edgelm.extra.CAPABILITY", capability)). Low-risk capabilities
+     * are grant-on-first-use and never need this. Returns true if [capability] needs
+     * explicit consent (i.e. is high-risk), so the SDK knows whether to launch the UI.
+     * Appended at the end for ABI stability.
+     */
+    boolean capabilityNeedsConsent(String capability);
 }

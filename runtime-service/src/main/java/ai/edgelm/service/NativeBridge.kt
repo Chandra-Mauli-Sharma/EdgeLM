@@ -35,9 +35,67 @@ object NativeBridge {
      *  Returns true if the draft loaded. Call after [loadModel], before generating. */
     external fun attachDraft(handle: Long, draftPath: String): Boolean
 
+    // ---- Embeddings (Phase 2) -------------------------------------------------
+
+    /** Load a model in embedding mode (mean-pooled). Returns a handle, or 0 on failure.
+     *  Free with [unloadModel]. Distinct from a chat [loadModel] handle. */
+    external fun loadEmbeddingModel(path: String): Long
+
+    /** Embedding dimension (n_embd) of an embedding [handle], or 0. */
+    external fun embedDim(handle: Long): Int
+
+    /** L2-normalized embedding of [text], or null on failure. Blocking; call off-main. */
+    external fun embed(handle: Long, text: String): FloatArray?
+
     /** Called from C++ to deliver tokens and check for cancellation. */
     interface TokenSink {
         fun onChunk(text: String)
+        fun isCancelled(): Boolean
+    }
+
+    // ---- Increment 2: continuous batching (opt-in, -DEDGELM_BATCHED=ON) --------
+
+    /**
+     * Continuous-batching test entry (see docs/PHASE1-KV-POOLING.md). Submits every
+     * prompt on its own sequence over ONE shared context and drives a single batched
+     * decode loop, streaming each sequence's tokens via [sink] tagged with its index.
+     * Shares [handle]'s already-loaded weights — no second copy in RAM. Returns the
+     * number of sequences run. Returns 0 if the native lib was built WITHOUT
+     * -DEDGELM_BATCHED (default), so this is safe to call either way. Blocking.
+     */
+    external fun batchedRunTest(handle: Long, prompts: Array<String>, sink: BatchedSink): Int
+
+    /** Per-sequence streaming sink for [batchedRunTest]; [seq] is the prompt index. */
+    interface BatchedSink {
+        fun onChunk(seq: Int, text: String)
+    }
+
+    // ---- Persistent batched runtime (service integration) ---------------------
+    // All no-op / 0 unless built with -DEDGELM_BATCHED=ON. Driven by BatchedRuntimeSession.
+
+    /** Create a persistent runtime sharing [modelHandle]'s weights. Returns 0 on failure. */
+    external fun batchedCreate(modelHandle: Long, poolSize: Int, nCtxPerSeq: Int): Long
+
+    /** Queue a generation on a sequence for (uid, sessionId). false = pool full / disabled. */
+    external fun batchedSubmit(rtHandle: Long, uid: Int, sessionId: String, prompt: String,
+                               sink: BatchedRequestSink): Boolean
+
+    /** Advance one batched decode step; returns the number of still-active sequences. */
+    external fun batchedStep(rtHandle: Long): Int
+
+    /** Pause/resume a sequence (preemption): a paused seq leaves the batch, KV intact. */
+    external fun batchedPause(rtHandle: Long, uid: Int, sessionId: String, paused: Boolean)
+
+    /** Cancel a sequence; it's retired at the next step. */
+    external fun batchedCancel(rtHandle: Long, uid: Int, sessionId: String)
+
+    /** Free the runtime and its context. */
+    external fun batchedDestroy(rtHandle: Long)
+
+    /** Per-request sink for the persistent path: text chunks, then one onDone(tokenCount). */
+    interface BatchedRequestSink {
+        fun onChunk(text: String)
+        fun onDone(tokens: Int)
         fun isCancelled(): Boolean
     }
 }
