@@ -31,6 +31,16 @@ int    generate(Model* m, const std::string& sessionId, const std::string& promp
 void   request_cancel(Model* m);
 void   unload_model(Model* m);
 
+// Set the system prompt used by generate() for this model. Empty string restores the
+// built-in default. Changing it invalidates the cached system-prefix KV + any session
+// (the next generate re-prefills). Call before generate(); serialize with it.
+void   set_system_prompt(Model* m, const char* system);
+
+// Constrain the NEXT generation to a GBNF grammar (guarantees well-formed output, e.g. a
+// tool call). Empty string clears it (free generation). Applies per-call; set "" to reset.
+// Call before generate(); serialize with it.
+void   set_grammar(Model* m, const char* gbnf);
+
 // --- embeddings (Phase 2) ----------------------------------------------------
 // Load a model in EMBEDDING mode (mean-pooled sentence embeddings, non-causal for
 // BERT-style encoders). Distinct from load_model — the context is created with

@@ -53,6 +53,10 @@ struct Model {
     bool           lookup = false;
     // Loaded in embedding mode (context created with embeddings=true, mean pooling). embed() only.
     bool           embedding = false;
+    // Custom system prompt (OpenAI system message). Empty = use the built-in SYSTEM_TEXT.
+    std::string    system_text;
+    // Optional GBNF grammar constraining the next generation (empty = free). See set_grammar.
+    std::string    grammar;
 };
 
 static std::once_flag g_backend_once;
@@ -330,15 +334,34 @@ static size_t safe_utf8_len(const std::string& s) {
     return n;   // no lead byte in the last 4 bytes (all ASCII/continuation): safe as-is
 }
 
+// The full system block: the built-in default, or a custom system prompt wrapped in the
+// chat template. (The API sends system CONTENT; we wrap it here.)
+static std::string system_block(Model* m) {
+    if (m->system_text.empty()) return SYSTEM_TEXT;
+    return "<|im_start|>system\n" + m->system_text + "<|im_end|>\n";
+}
+
+void set_system_prompt(Model* m, const char* system) {
+    if (!m) return;
+    std::string s = system ? system : "";
+    if (s == m->system_text) return;      // unchanged — keep the cached prefix
+    m->system_text    = s;
+    m->system_ready   = false;            // re-prefill the system prefix on next generate
+    m->active_session = "";               // system changed → invalidate any session KV
+    m->session_past   = 0;
+    LOGI("system prompt set (%zu chars) — will re-prefill", s.size());
+}
+
 static void ensure_system(Model* m) {
     if (m->system_ready) return;
     llama_context*     ctx   = m->ctx;
     const llama_vocab* vocab = llama_model_get_vocab(m->model);
+    const std::string  sys   = system_block(m);
     llama_memory_clear(llama_get_memory(ctx), /*data=*/true);
-    const int n = -llama_tokenize(vocab, SYSTEM_TEXT.c_str(), (int)SYSTEM_TEXT.size(),
+    const int n = -llama_tokenize(vocab, sys.c_str(), (int)sys.size(),
                                   nullptr, 0, true, true);
     std::vector<llama_token> toks(n);
-    llama_tokenize(vocab, SYSTEM_TEXT.c_str(), (int)SYSTEM_TEXT.size(), toks.data(), n, true, true);
+    llama_tokenize(vocab, sys.c_str(), (int)sys.size(), toks.data(), n, true, true);
     llama_batch b = llama_batch_get_one(toks.data(), n);
     if (llama_decode(ctx, b) == 0) { m->system_len = n; m->system_ready = true;
         LOGI("system prefix cached: %d tok", n); }
@@ -699,6 +722,13 @@ int generate(Model* m, const std::string& sessionId, const std::string& prompt, 
     }
 
     llama_sampler* smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    // Grammar first: it masks tokens that would violate the GBNF before sampling, so the
+    // output is GUARANTEED to match (e.g. a well-formed tool call) on any model.
+    if (!m->grammar.empty()) {
+        llama_sampler* gr = llama_sampler_init_grammar(vocab, m->grammar.c_str(), "root");
+        if (gr) { llama_sampler_chain_add(smpl, gr); LOGI("grammar-constrained generation"); }
+        else LOGE("grammar init failed — generating unconstrained");
+    }
     llama_sampler_chain_add(smpl, llama_sampler_init_top_k(40));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.95f, 1));
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.7f));
@@ -872,6 +902,11 @@ int embed(Model* m, const std::string& text, std::vector<float>& out) {
     norm = std::sqrt(norm);
     if (norm > 0) for (auto& v : out) v = (float)(v / norm);
     return n_embd;
+}
+
+void set_grammar(Model* m, const char* gbnf) {
+    if (!m) return;
+    m->grammar = gbnf ? gbnf : "";
 }
 
 void request_cancel(Model* m) { if (m) m->cancel = true; }

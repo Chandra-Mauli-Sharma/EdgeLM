@@ -345,9 +345,13 @@ class EdgeLMService : Service() {
         uid: Int,
         onToken: (String) -> Unit,
         isCancelled: () -> Boolean,
+        system: String = "",
+        grammar: String = "",
     ): EdgeLMHttpServer.GenStats {
         val b = batchedSession
-            ?: return runInference(sessionId, prompt, priority, caller, onToken, isCancelled)
+            ?: return runInference(sessionId, prompt, priority, caller, onToken, isCancelled, system, grammar)
+        // NOTE: the batched engine uses its own COW system template; per-request system
+        // prompts aren't applied there yet (documented limitation).
         // Batched path: concurrent decode, no scheduler lock. Mirror the notification/idle
         // bookkeeping runInference does so the UI + auto-unload still behave.
         cancelIdleUnload()
@@ -389,6 +393,8 @@ class EdgeLMService : Service() {
         caller: String,
         onToken: (String) -> Unit,
         isCancelled: () -> Boolean,
+        system: String = "",
+        grammar: String = "",
     ): EdgeLMHttpServer.GenStats = scheduler.withEngine(priority, appId = caller) { _ ->
         // Single shared context => serialize; the scheduler admits the highest effective
         // score next (priority + aging + per-app fair share). One generation at a time.
@@ -445,6 +451,8 @@ class EdgeLMService : Service() {
                 }
                 override fun isCancelled(): Boolean = isCancelled()
             }
+            engine.setSystemPrompt(session!!, system)   // apply the OpenAI system message (default "" = built-in)
+            engine.setGrammar(session!!, grammar)        // constrain output if a grammar was set ("" = free)
             val n = engine.generate(session!!, sessionId, prompt, sink)
             val elapsed = System.currentTimeMillis() - started
             if (elapsed > 0 && n > 0) lastTps = n * 1000.0 / elapsed
@@ -486,12 +494,12 @@ class EdgeLMService : Service() {
             // HTTP path is stateless (OpenAI clients resend full history) -> no session,
             // and defaults to BATCH priority (no UI foreground signal). Gated by the
             // same broker as Binder callers, via the loopback pseudo-identity (Part 7).
-            infer = { _, prompt, onToken, isCancelled ->
+            infer = { _, system, prompt, grammar, onToken, isCancelled ->
                 val d = broker.checkHttp(CapabilityBroker.Capability.CHAT)
                 if (d is CapabilityBroker.Decision.Deny)
                     throw SecurityException("EdgeLM: ${d.reason}")
                 dispatchInference("", prompt, AIScheduler.Priority.BATCH,
-                    "OpenAI HTTP client", android.os.Process.myUid(), onToken, isCancelled)
+                    "OpenAI HTTP client", android.os.Process.myUid(), onToken, isCancelled, system, grammar)
             },
             warmModels = { warmModels() },
             edgeCatalog = { edgeCatalogJson() },
@@ -507,6 +515,7 @@ class EdgeLMService : Service() {
             edgeBatchedMode = { on -> setBatchedMode(on) },
             embeddings = { inputs -> edgeEmbeddings(inputs) },
             vectors = { op, body -> edgeVectors(op, body) },
+            agent = { prompt -> edgeAgent(prompt) },
         ).also { server ->
             runCatching { server.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false) }
                 .onSuccess { Log.i(TAG, "HTTP shim on http://127.0.0.1:$HTTP_PORT/v1") }
@@ -605,6 +614,54 @@ class EdgeLMService : Service() {
             .put("data", data)
             .put("model", ModelCatalog.embeddingModel()?.id ?: "embedding")
             .put("usage", org.json.JSONObject().put("prompt_tokens", approxTokens).put("total_tokens", approxTokens))
+            .toString()
+    }
+
+    // ---- Agent loop: in-runtime tool execution (Phase 2, MCP broker slice) ----
+
+    /** Run one full generation synchronously and return the complete text. */
+    private fun generateText(system: String, prompt: String, grammar: String = ""): String {
+        val sb = StringBuilder()
+        dispatchInference("", prompt, AIScheduler.Priority.BATCH, "agent",
+            android.os.Process.myUid(), { sb.append(it) }, { false }, system, grammar)
+        return sb.toString()
+    }
+
+    /** The agent loop: every step is a GRAMMAR-FORCED tool call (built-in tools + a
+     *  `final_answer` pseudo-tool). Built-in tools are executed in-runtime and fed back;
+     *  `final_answer` ends the loop. Grammar guarantees well-formed calls on any model. */
+    private fun edgeAgent(userPrompt: String): String {
+        val d = broker.checkHttp(CapabilityBroker.Capability.CHAT)
+        if (d is CapabilityBroker.Decision.Deny) return errJson("EdgeLM: ${d.reason}")
+
+        // Built-in tools + a final_answer tool, so every turn is a forced, valid tool call.
+        val tools = ToolBroker.openAiTools()
+        tools.put(JSONObject().put("type", "function").put("function", JSONObject()
+            .put("name", "final_answer")
+            .put("description", "Give the final answer to the user once you have what you need")
+            .put("parameters", JSONObject("""{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}"""))))
+        val system = ToolCalls.preamble(tools)
+        val grammar = ToolCalls.grammarForTools(ToolCalls.toolNames(tools))   // forces a valid tool_call
+
+        val steps = JSONArray()
+        var convo = userPrompt
+        var answer: String? = null
+        for (step in 0 until 4) {                       // bounded tool loop
+            val out = generateText(system, convo, grammar)
+            val calls = ToolCalls.parse(out) ?: break
+            val fn = calls.getJSONObject(0).getJSONObject("function")
+            val name = fn.getString("name")
+            val args = runCatching { JSONObject(fn.getString("arguments")) }.getOrDefault(JSONObject())
+            if (name == "final_answer") { answer = args.optString("answer").ifBlank { convo }; break }
+            val result = ToolBroker.execute(name, args)  // executed IN the runtime
+            steps.put(JSONObject().put("tool", name).put("arguments", args).put("result", result))
+            Log.i(TAG, "agent step $step: $name($args) -> $result")
+            convo = "$userPrompt\n\n[The $name tool returned: $result]\n" +
+                    "Now call final_answer with the answer for the user (include the result)."
+        }
+        return JSONObject()
+            .put("answer", answer ?: "(no final answer after tool steps)")
+            .put("steps", steps)
             .toString()
     }
 

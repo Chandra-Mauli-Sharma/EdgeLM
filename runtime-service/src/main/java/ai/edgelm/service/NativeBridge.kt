@@ -25,6 +25,14 @@ object NativeBridge {
     /** Cooperative cancel of the in-flight generation on [handle]. */
     external fun cancel(handle: Long)
 
+    /** Set the system prompt for [handle] (OpenAI system message). "" restores the default.
+     *  Changing it re-prefills on the next generate. Serialize with generate. */
+    external fun setSystemPrompt(handle: Long, system: String)
+
+    /** Constrain the next generation to a GBNF [grammar] (guaranteed well-formed output);
+     *  "" clears it. Serialize with generate. */
+    external fun setGrammar(handle: Long, grammar: String)
+
     /** munmap + free. */
     external fun unloadModel(handle: Long)
 

@@ -56,6 +56,12 @@ class LlamaCppEngine : InferenceEngine {
     override fun cancel(session: InferenceEngine.Session) =
         NativeBridge.cancel(session.native())
 
+    override fun setSystemPrompt(session: InferenceEngine.Session, system: String) =
+        NativeBridge.setSystemPrompt(session.native(), system)
+
+    override fun setGrammar(session: InferenceEngine.Session, grammar: String) =
+        NativeBridge.setGrammar(session.native(), grammar)
+
     override fun unload(session: InferenceEngine.Session) =
         NativeBridge.unloadModel(session.native())
 }

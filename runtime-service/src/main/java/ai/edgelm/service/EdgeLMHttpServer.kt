@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class EdgeLMHttpServer(
     port: Int,
-    private val infer: (model: String, prompt: String,
+    private val infer: (model: String, system: String, prompt: String, grammar: String,
                         onToken: (String) -> Unit, isCancelled: () -> Boolean) -> GenStats,
     private val warmModels: () -> List<String>,
     // Hub control surface (arch doc Part 10/13) — each returns a JSON string.
@@ -41,6 +41,8 @@ class EdgeLMHttpServer(
     private val embeddings: (inputs: List<String>) -> String = { "{\"error\":\"embeddings unavailable\"}" },
     // On-device vector index: op = upsert|query|delete|collections, raw request body.
     private val vectors: (op: String, body: String) -> String = { _, _ -> "{\"error\":\"vectors unavailable\"}" },
+    // Agent loop: prompt in, {answer, steps} out (runtime executes built-in tools).
+    private val agent: (prompt: String) -> String = { "{\"error\":\"agent unavailable\"}" },
 ) : NanoHTTPD("127.0.0.1", port) {
 
     data class GenStats(val tokenCount: Int, val elapsedMs: Long, val ttftMs: Long = 0)
@@ -67,6 +69,12 @@ class EdgeLMHttpServer(
                     val op = session.uri.removePrefix("/v1/edge/vectors/")
                     val body = if (session.method == Method.POST) readBody(session) else "{}"
                     raw(vectors(op, body))
+                }
+
+                // Agent loop with in-runtime tool execution.
+                session.method == Method.POST && session.uri == "/v1/edge/agent" -> {
+                    val p = JSONObject(readBody(session)).optString("prompt")
+                    if (p.isBlank()) badRequest("missing 'prompt'") else raw(agent(p))
                 }
 
                 // ---- Hub control surface (Part 10/13) ----
@@ -121,13 +129,59 @@ class EdgeLMHttpServer(
         val req = JSONObject(body)
         val model = req.optString("model", "default")
         val stream = req.optBoolean("stream", false)
-        val prompt = flattenMessages(req.optJSONArray("messages"))
+        val messages = req.optJSONArray("messages")
+        val system = extractSystem(messages)            // the OpenAI system message(s)
+        val prompt = flattenMessages(messages)          // user/assistant turns only
 
-        return if (stream) streamingResponse(model, prompt) else blockingResponse(model, prompt)
+        // Tool/function calling: put the tool schemas in the SYSTEM prompt (most reliable),
+        // then (non-streaming) parse the model's reply into OpenAI tool_calls. When
+        // tool_choice forces a call, constrain output with a GBNF grammar so the tool call
+        // is GUARANTEED well-formed on any model.
+        val tools = req.optJSONArray("tools")
+        if (tools != null && tools.length() > 0) {
+            val toolSystem = (if (system.isNotBlank()) "$system\n\n" else "") + ToolCalls.preamble(tools)
+            val grammar = grammarFor(req.opt("tool_choice"), tools)
+            return toolResponse(model, toolSystem, prompt, grammar)
+        }
+
+        return if (stream) streamingResponse(model, system, prompt)
+               else blockingResponse(model, system, prompt)
+    }
+
+    /** Resolve OpenAI tool_choice → a forcing GBNF grammar, or "" for auto/none. */
+    private fun grammarFor(toolChoice: Any?, tools: JSONArray): String {
+        val forced: List<String> = when {
+            toolChoice is String && toolChoice == "required" -> ToolCalls.toolNames(tools)
+            toolChoice is JSONObject && toolChoice.optString("type") == "function" ->
+                listOfNotNull(toolChoice.optJSONObject("function")?.optString("name")?.ifBlank { null })
+            else -> emptyList()   // "auto" (default) / "none" / absent → model decides
+        }
+        return if (forced.isNotEmpty()) ToolCalls.grammarForTools(forced) else ""
+    }
+
+    /** Non-streaming completion that returns OpenAI tool_calls if the model emitted one. */
+    private fun toolResponse(model: String, system: String, prompt: String, grammar: String): Response {
+        val sb = StringBuilder()
+        val stats = infer(model, system, prompt, grammar, { sb.append(it) }, { false })
+        val calls = ToolCalls.parse(sb.toString())
+        val msg = JSONObject().put("role", "assistant")
+        val finish: String
+        if (calls != null) { msg.put("content", JSONObject.NULL).put("tool_calls", calls); finish = "tool_calls" }
+        else { msg.put("content", sb.toString()); finish = "stop" }
+        val payload = JSONObject()
+            .put("id", "chatcmpl-" + System.nanoTime())
+            .put("object", "chat.completion")
+            .put("model", model)
+            .put("choices", JSONArray().put(
+                JSONObject().put("index", 0).put("message", msg).put("finish_reason", finish)))
+            .put("usage", JSONObject()
+                .put("completion_tokens", stats.tokenCount).put("total_tokens", stats.tokenCount))
+            .put("edge", JSONObject().put("elapsed_ms", stats.elapsedMs).put("ttft_ms", stats.ttftMs))
+        return json(payload)
     }
 
     /** SSE: one chat.completion.chunk per token, then [DONE]. */
-    private fun streamingResponse(model: String, prompt: String): Response {
+    private fun streamingResponse(model: String, system: String, prompt: String): Response {
         val pipeOut = PipedOutputStream()
         val pipeIn = PipedInputStream(pipeOut, 64 * 1024)
         val id = "chatcmpl-" + System.nanoTime()
@@ -135,7 +189,7 @@ class EdgeLMHttpServer(
 
         Thread {
             try {
-                infer(model, prompt,
+                infer(model, system, prompt, "",
                     { token ->
                         val chunk = JSONObject()
                             .put("id", id).put("object", "chat.completion.chunk")
@@ -166,9 +220,9 @@ class EdgeLMHttpServer(
     }
 
     /** Non-streaming: accumulate, return a single chat.completion object. */
-    private fun blockingResponse(model: String, prompt: String): Response {
+    private fun blockingResponse(model: String, system: String, prompt: String): Response {
         val sb = StringBuilder()
-        val stats = infer(model, prompt, { sb.append(it) }, { false })
+        val stats = infer(model, system, prompt, "", { sb.append(it) }, { false })
         val payload = JSONObject()
             .put("id", "chatcmpl-" + System.nanoTime())
             .put("object", "chat.completion")
@@ -190,13 +244,28 @@ class EdgeLMHttpServer(
     // ---- helpers ------------------------------------------------------------
     private fun flattenMessages(messages: JSONArray?): String {
         if (messages == null) return ""
-        // Spike: concatenate turns into one prompt; the native layer applies the
-        // chat template. Phase 1 passes structured turns through instead.
+        // Concatenate the user/assistant turns into one prompt; the native layer applies the
+        // chat template. System messages are handled separately (see extractSystem).
         val sb = StringBuilder()
         for (i in 0 until messages.length()) {
             val m = messages.getJSONObject(i)
-            sb.append(m.optString("role")).append(": ")
-              .append(m.optString("content")).append('\n')
+            val role = m.optString("role")
+            if (role == "system") continue
+            sb.append(role).append(": ").append(m.optString("content")).append('\n')
+        }
+        return sb.toString().trim()
+    }
+
+    /** Concatenate the content of any system messages → the native system prompt. */
+    private fun extractSystem(messages: JSONArray?): String {
+        if (messages == null) return ""
+        val sb = StringBuilder()
+        for (i in 0 until messages.length()) {
+            val m = messages.getJSONObject(i)
+            if (m.optString("role") == "system") {
+                if (sb.isNotEmpty()) sb.append("\n")
+                sb.append(m.optString("content"))
+            }
         }
         return sb.toString().trim()
     }

@@ -109,6 +109,22 @@ Java_ai_edgelm_service_NativeBridge_cancel(JNIEnv*, jobject, jlong handle) {
 }
 
 JNIEXPORT void JNICALL
+Java_ai_edgelm_service_NativeBridge_setSystemPrompt(JNIEnv* env, jobject, jlong handle, jstring jsystem) {
+    auto* m = reinterpret_cast<edgelm::Model*>(handle);
+    if (!m) return;
+    std::string s = jstring_to_utf8(env, jsystem);
+    edgelm::set_system_prompt(m, s.c_str());
+}
+
+JNIEXPORT void JNICALL
+Java_ai_edgelm_service_NativeBridge_setGrammar(JNIEnv* env, jobject, jlong handle, jstring jgbnf) {
+    auto* m = reinterpret_cast<edgelm::Model*>(handle);
+    if (!m) return;
+    std::string g = jstring_to_utf8(env, jgbnf);
+    edgelm::set_grammar(m, g.c_str());
+}
+
+JNIEXPORT void JNICALL
 Java_ai_edgelm_service_NativeBridge_unloadModel(JNIEnv*, jobject, jlong handle) {
     edgelm::unload_model(reinterpret_cast<edgelm::Model*>(handle));
 }

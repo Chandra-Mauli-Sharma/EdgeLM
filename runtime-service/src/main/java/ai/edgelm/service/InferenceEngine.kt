@@ -46,6 +46,14 @@ interface InferenceEngine {
     /** Cooperative cancel of the in-flight generation on [session]. */
     fun cancel(session: Session)
 
+    /** Set the system prompt for [session] (OpenAI system message); "" restores the default.
+     *  Called under the same serialization as [generate]. Default: no-op (engine ignores it). */
+    fun setSystemPrompt(session: Session, system: String) {}
+
+    /** Constrain the next [generate] on [session] to a GBNF grammar; "" clears it.
+     *  Serialized with generate. Default: no-op (engine ignores grammars). */
+    fun setGrammar(session: Session, grammar: String) {}
+
     /** Free [session]'s native resources. */
     fun unload(session: Session)
 

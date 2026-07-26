@@ -19,6 +19,8 @@
     .\tools\edgelm.ps1 vectors add <col> "text"     store a doc in a local collection (RAG)
     .\tools\edgelm.ps1 vectors search <col> "query" semantic search a collection
     .\tools\edgelm.ps1 vectors ls                    list collections
+    .\tools\edgelm.ps1 tools-demo ["prompt"]         demo OpenAI tool-calling (weather tool)
+    .\tools\edgelm.ps1 agent "question"              agent loop: runtime runs built-in tools
     .\tools\edgelm.ps1 bench [n] [prompt]  time n runs: ttft, end-to-end + decode tok/s
 
   Env: EDGELM_HOST (default 127.0.0.1), EDGELM_PORT (default 1408),
@@ -152,6 +154,32 @@ switch ($Command.ToLower()) {
       "ls" { Invoke-RestMethod -Uri "$Base/v1/edge/vectors/collections" | ConvertTo-Json -Depth 6 }
       default { Fail 'usage: .\tools\edgelm.ps1 vectors add|search|ls ...' }
     }
+  }
+
+  "tools-demo" {
+    $prompt = if ($Rest.Count -ge 1) { ($Rest -join " ") } else { "What's the weather in Paris?" }
+    $body = @{
+      model = $Model; stream = $false
+      messages = @(@{ role = "user"; content = $prompt })
+      tools = @(@{ type = "function"; function = @{
+        name = "get_weather"; description = "Get the current weather for a city"
+        parameters = @{ type = "object"; properties = @{ city = @{ type = "string"; description = "City name" } }; required = @("city") }
+      } })
+    } | ConvertTo-Json -Depth 10 -Compress
+    $resp = Invoke-RestMethod -Method Post -Uri "$Base/v1/chat/completions" -ContentType "application/json" -Body $body
+    $c = $resp.choices[0].message
+    if ($c.tool_calls) { Write-Host ("tool_call: {0}({1})" -f $c.tool_calls[0].function.name, $c.tool_calls[0].function.arguments) }
+    else { Write-Host ("content: {0}" -f $c.content) }
+  }
+
+  "agent" {
+    $prompt = ($Rest -join " ").Trim()
+    if (-not $prompt) { Fail 'usage: .\tools\edgelm.ps1 agent "question"' }
+    $body = @{ prompt = $prompt } | ConvertTo-Json -Compress
+    $resp = Invoke-RestMethod -Method Post -Uri "$Base/v1/edge/agent" -ContentType "application/json" -Body $body
+    if ($resp.error) { Write-Host $resp.error; break }
+    foreach ($s in $resp.steps) { Write-Host ("  [tool] {0} -> {1}" -f $s.tool, $s.result) }
+    Write-Host ("answer: {0}" -f $resp.answer)
   }
 
   "bench" {
