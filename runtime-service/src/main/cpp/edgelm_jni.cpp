@@ -5,6 +5,9 @@
 #ifdef EDGELM_BATCHED
 #include "batched_runner.h"
 #endif
+#ifdef EDGELM_VISION
+#include "vision_runner.h"
+#endif
 
 // JNI bindings for ai.edgelm.service.NativeBridge (a Kotlin `object`).
 //
@@ -210,6 +213,56 @@ Java_ai_edgelm_service_NativeBridge_embed(JNIEnv* env, jobject, jlong handle, js
     if (!arr) return nullptr;
     env->SetFloatArrayRegion(arr, 0, dim, vec.data());
     return arr;
+}
+
+// ---- Vision / multimodal (Phase 2) ------------------------------------------
+// Guarded; stubs when -DEDGELM_VISION is off so the Kotlin externals still link.
+
+JNIEXPORT jlong JNICALL
+Java_ai_edgelm_service_NativeBridge_loadVisionModel(JNIEnv* env, jobject, jstring jmodel, jstring jmmproj) {
+#ifdef EDGELM_VISION
+    std::string model  = jstring_to_utf8(env, jmodel);
+    std::string mmproj = jstring_to_utf8(env, jmmproj);
+    return reinterpret_cast<jlong>(edgelm::load_vision_model(model.c_str(), mmproj.c_str()));
+#else
+    (void)env; (void)jmodel; (void)jmmproj; return 0;
+#endif
+}
+
+JNIEXPORT jint JNICALL
+Java_ai_edgelm_service_NativeBridge_visionGenerate(JNIEnv* env, jobject,
+                                                   jlong handle, jstring jprompt, jbyteArray jimage, jobject jsink) {
+#ifdef EDGELM_VISION
+    auto* m = reinterpret_cast<edgelm::VisionModel*>(handle);
+    if (!m || !jimage || !jsink) return 0;
+    std::string prompt = jstring_to_utf8(env, jprompt);
+    const jsize len = env->GetArrayLength(jimage);
+    std::vector<uint8_t> img((size_t)len);
+    if (len > 0) env->GetByteArrayRegion(jimage, 0, len, reinterpret_cast<jbyte*>(img.data()));
+
+    jclass    cls     = env->GetObjectClass(jsink);
+    jmethodID onChunk = env->GetMethodID(cls, "onChunk", "(Ljava/lang/String;)V");
+    jmethodID isCanc  = env->GetMethodID(cls, "isCancelled", "()Z");
+    edgelm::Sink sink;                                   // runs on THIS thread → env is valid
+    sink.emit_chunk = [env, jsink, onChunk](const std::string& t) {
+        jstring js = utf8_to_jstring(env, t);
+        if (js) { env->CallVoidMethod(jsink, onChunk, js); env->DeleteLocalRef(js); }
+    };
+    sink.is_cancelled = [env, jsink, isCanc]() -> bool { return env->CallBooleanMethod(jsink, isCanc) == JNI_TRUE; };
+
+    return edgelm::vision_generate(m, prompt, img.data(), (int)len, sink);
+#else
+    (void)env; (void)handle; (void)jprompt; (void)jimage; (void)jsink; return 0;
+#endif
+}
+
+JNIEXPORT void JNICALL
+Java_ai_edgelm_service_NativeBridge_unloadVisionModel(JNIEnv*, jobject, jlong handle) {
+#ifdef EDGELM_VISION
+    edgelm::unload_vision_model(reinterpret_cast<edgelm::VisionModel*>(handle));
+#else
+    (void)handle;
+#endif
 }
 
 // ---- Increment 2 service integration: persistent BatchedRuntime -------------

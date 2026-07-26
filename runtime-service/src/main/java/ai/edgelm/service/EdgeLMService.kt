@@ -124,6 +124,7 @@ class EdgeLMService : Service() {
     override fun onCreate() {
         super.onCreate()
         EngineRegistry.init(applicationContext)   // give the LiteRT engine a cache-dir Context
+        ToolBroker.init(filesDir)                 // where the agent's `remember` tool writes
         createNotificationChannel()
         // Go foreground immediately so there's a visible "EdgeLM running" chip and
         // the OS treats the shared runtime as in-use (survives OEM freezers).
@@ -515,7 +516,10 @@ class EdgeLMService : Service() {
             edgeBatchedMode = { on -> setBatchedMode(on) },
             embeddings = { inputs -> edgeEmbeddings(inputs) },
             vectors = { op, body -> edgeVectors(op, body) },
-            agent = { prompt -> edgeAgent(prompt) },
+            agent = { body -> edgeAgent(body) },
+            rag = { body -> edgeRag(body) },
+            caption = { body -> edgeCaption(body) },
+            transcribe = { body -> edgeTranscribe(body) },
         ).also { server ->
             runCatching { server.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false) }
                 .onSuccess { Log.i(TAG, "HTTP shim on http://127.0.0.1:$HTTP_PORT/v1") }
@@ -630,7 +634,13 @@ class EdgeLMService : Service() {
     /** The agent loop: every step is a GRAMMAR-FORCED tool call (built-in tools + a
      *  `final_answer` pseudo-tool). Built-in tools are executed in-runtime and fed back;
      *  `final_answer` ends the loop. Grammar guarantees well-formed calls on any model. */
-    private fun edgeAgent(userPrompt: String): String {
+    private fun edgeAgent(body: String): String {
+        val req = JSONObject(body)
+        val userPrompt = req.optString("prompt")
+        if (userPrompt.isBlank()) return errJson("missing 'prompt'")
+        // Side-effecting tools (e.g. `remember`, which writes to disk) run only with explicit
+        // consent — the human-in-the-loop gate (Part 9). Read-only tools always run.
+        val allowSideEffects = req.optBoolean("allow_side_effects", false)
         val d = broker.checkHttp(CapabilityBroker.Capability.CHAT)
         if (d is CapabilityBroker.Decision.Deny) return errJson("EdgeLM: ${d.reason}")
 
@@ -653,7 +663,11 @@ class EdgeLMService : Service() {
             val name = fn.getString("name")
             val args = runCatching { JSONObject(fn.getString("arguments")) }.getOrDefault(JSONObject())
             if (name == "final_answer") { answer = args.optString("answer").ifBlank { convo }; break }
-            val result = ToolBroker.execute(name, args)  // executed IN the runtime
+            // Consent gate: refuse a side-effecting tool unless the caller allowed it.
+            val tool = ToolBroker.byName(name)
+            val result = if (tool != null && tool.sideEffecting && !allowSideEffects)
+                "refused: '$name' has side effects and needs consent (set allow_side_effects=true)"
+            else ToolBroker.execute(name, args)          // executed IN the runtime
             steps.put(JSONObject().put("tool", name).put("arguments", args).put("result", result))
             Log.i(TAG, "agent step $step: $name($args) -> $result")
             convo = "$userPrompt\n\n[The $name tool returned: $result]\n" +
@@ -663,6 +677,105 @@ class EdgeLMService : Service() {
             .put("answer", answer ?: "(no final answer after tool steps)")
             .put("steps", steps)
             .toString()
+    }
+
+    // ---- Vision / multimodal (Phase 2) ----------------------------------------
+
+    @Volatile private var visionHandle: Long = 0
+    private val visionLock = Any()
+
+    /** Lazily load the catalog's vision model (LLM + mmproj), if both are installed. */
+    @Synchronized private fun ensureVisionModelLoaded(): Long {
+        if (visionHandle != 0L) return visionHandle
+        val spec = ModelCatalog.models.firstOrNull { it.kind == "vision" } ?: return 0
+        val llm = ModelStore.installedFile(this, spec.id) ?: return 0
+        val mmproj = ModelStore.fileFor(this, "${spec.id}.mmproj", "gguf")
+        if (!mmproj.exists()) return 0
+        visionHandle = NativeBridge.loadVisionModel(llm.absolutePath, mmproj.absolutePath)
+        if (visionHandle != 0L) Log.i(TAG, "vision model loaded: ${spec.id}")
+        return visionHandle
+    }
+
+    /** /v1/edge/caption: describe a base64 image. VISION-gated. Needs a -DEDGELM_VISION build. */
+    private fun edgeCaption(body: String): String {
+        val d = broker.checkHttp(CapabilityBroker.Capability.VISION)
+        if (d is CapabilityBroker.Decision.Deny) return errJson("EdgeLM: ${d.reason}")
+        val o = JSONObject(body)
+        val prompt = o.optString("prompt", "Describe this image in detail.")
+        val imageB64 = o.optString("image")
+        if (imageB64.isBlank()) return errJson("missing 'image' (base64)")
+        val i = imageB64.indexOf("base64,")
+        val b64 = if (i >= 0) imageB64.substring(i + 7) else imageB64
+        val bytes = runCatching { android.util.Base64.decode(b64, android.util.Base64.DEFAULT) }.getOrNull()
+            ?: return errJson("invalid base64 image")
+        val h = ensureVisionModelLoaded()
+        if (h == 0L) return errJson("vision model unavailable — install the vision model and build with -DEDGELM_VISION=ON")
+        val sb = StringBuilder()
+        synchronized(visionLock) {
+            NativeBridge.visionGenerate(h, prompt, bytes, object : NativeBridge.TokenSink {
+                override fun onChunk(text: String) { sb.append(text) }
+                override fun isCancelled(): Boolean = false
+            })
+        }
+        return JSONObject().put("caption", sb.toString().trim()).toString()
+    }
+
+    /** /v1/edge/transcribe: speech-to-text. Reuses the mtmd path (it auto-detects audio),
+     *  so it needs an AUDIO-capable multimodal model loaded (SmolVLM is vision-only). */
+    private fun edgeTranscribe(body: String): String {
+        val d = broker.checkHttp(CapabilityBroker.Capability.VISION)   // multimodal capability
+        if (d is CapabilityBroker.Decision.Deny) return errJson("EdgeLM: ${d.reason}")
+        val o = JSONObject(body)
+        val b64 = o.optString("audio").substringAfterLast("base64,")
+        if (b64.isBlank()) return errJson("missing 'audio' (base64 wav/mp3/flac)")
+        val bytes = runCatching { android.util.Base64.decode(b64, android.util.Base64.DEFAULT) }.getOrNull()
+            ?: return errJson("invalid base64 audio")
+        val h = ensureVisionModelLoaded()
+        if (h == 0L) return errJson("no multimodal model available — needs an audio-capable model + -DEDGELM_VISION build")
+        val sb = StringBuilder()
+        synchronized(visionLock) {
+            NativeBridge.visionGenerate(h, o.optString("prompt", "Transcribe the audio verbatim."), bytes,
+                object : NativeBridge.TokenSink {
+                    override fun onChunk(text: String) { sb.append(text) }
+                    override fun isCancelled(): Boolean = false
+                })
+        }
+        return JSONObject().put("text", sb.toString().trim()).toString()
+    }
+
+    // ---- Retrieval-augmented chat (Phase 2) -----------------------------------
+
+    /** /v1/edge/rag: retrieve top-K from a collection, answer grounded in that context. */
+    private fun edgeRag(body: String): String {
+        val dc = broker.checkHttp(CapabilityBroker.Capability.CHAT)
+        if (dc is CapabilityBroker.Decision.Deny) return errJson("EdgeLM: ${dc.reason}")
+        val de = broker.checkHttp(CapabilityBroker.Capability.EMBED)
+        if (de is CapabilityBroker.Decision.Deny) return errJson("EdgeLM: ${de.reason}")
+        if (ensureEmbedModelLoaded() == 0L)
+            return errJson("embedding model not installed — run: edgelm pull bge-small-en-v1.5")
+
+        val o = JSONObject(body)
+        val collection = o.optString("collection", "default")
+        val query = o.optString("query")
+        if (query.isBlank()) return errJson("missing 'query'")
+        val topK = o.optInt("top_k", 4)
+
+        val ns = CapabilityBroker.HTTP_PSEUDO_PACKAGE
+        val qv = embedOne(query) ?: return errJson("embedding failed")
+        val hits = vectorStore.query(ns, collection, qv, topK)
+        if (hits.isEmpty())
+            return JSONObject().put("answer", "(no documents in collection '$collection' — add some with 'vectors add')")
+                .put("sources", JSONArray()).toString()
+
+        // Ground the answer in the retrieved context via the system prompt.
+        val context = hits.joinToString("\n") { "- ${it.text}" }
+        val system = "Answer the user's question using ONLY the context below. " +
+                "If the answer isn't in the context, say you don't know.\n\nContext:\n$context"
+        val answer = generateText(system, query).trim()
+
+        val sources = JSONArray()
+        hits.forEach { sources.put(JSONObject().put("id", it.id).put("score", it.score.toDouble()).put("text", it.text)) }
+        return JSONObject().put("answer", answer).put("sources", sources).toString()
     }
 
     // ---- On-device vector index + RAG (Phase 2) -------------------------------
@@ -827,6 +940,7 @@ class EdgeLMService : Service() {
         runCatching { http?.stop() }
         runCatching { batchedSession?.shutdown() }; batchedSession = null
         if (embedHandle != 0L) { runCatching { NativeBridge.unloadModel(embedHandle) }; embedHandle = 0 }
+        if (visionHandle != 0L) { runCatching { NativeBridge.unloadVisionModel(visionHandle) }; visionHandle = 0 }
         cancelIdleUnload(); idleExecutor.shutdownNow()
         worker.shutdownNow()
         session?.let { engine.unload(it) }

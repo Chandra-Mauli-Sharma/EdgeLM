@@ -41,8 +41,14 @@ class EdgeLMHttpServer(
     private val embeddings: (inputs: List<String>) -> String = { "{\"error\":\"embeddings unavailable\"}" },
     // On-device vector index: op = upsert|query|delete|collections, raw request body.
     private val vectors: (op: String, body: String) -> String = { _, _ -> "{\"error\":\"vectors unavailable\"}" },
-    // Agent loop: prompt in, {answer, steps} out (runtime executes built-in tools).
-    private val agent: (prompt: String) -> String = { "{\"error\":\"agent unavailable\"}" },
+    // Agent loop: raw body {prompt, allow_side_effects} -> {answer, steps}.
+    private val agent: (body: String) -> String = { "{\"error\":\"agent unavailable\"}" },
+    // Retrieval-augmented chat: raw body {collection, query, top_k} -> {answer, sources}.
+    private val rag: (body: String) -> String = { "{\"error\":\"rag unavailable\"}" },
+    // Vision: raw body {image (base64), prompt} -> {caption}.
+    private val caption: (body: String) -> String = { "{\"error\":\"vision unavailable\"}" },
+    // Speech: raw body {audio (base64), prompt} -> {text}.
+    private val transcribe: (body: String) -> String = { "{\"error\":\"speech unavailable\"}" },
 ) : NanoHTTPD("127.0.0.1", port) {
 
     data class GenStats(val tokenCount: Int, val elapsedMs: Long, val ttftMs: Long = 0)
@@ -72,10 +78,20 @@ class EdgeLMHttpServer(
                 }
 
                 // Agent loop with in-runtime tool execution.
-                session.method == Method.POST && session.uri == "/v1/edge/agent" -> {
-                    val p = JSONObject(readBody(session)).optString("prompt")
-                    if (p.isBlank()) badRequest("missing 'prompt'") else raw(agent(p))
-                }
+                session.method == Method.POST && session.uri == "/v1/edge/agent" ->
+                    raw(agent(readBody(session)))
+
+                // Retrieval-augmented chat over a local vector collection.
+                session.method == Method.POST && session.uri == "/v1/edge/rag" ->
+                    raw(rag(readBody(session)))
+
+                // Vision: caption / describe an image.
+                session.method == Method.POST && session.uri == "/v1/edge/caption" ->
+                    raw(caption(readBody(session)))
+
+                // Speech: transcribe audio.
+                session.method == Method.POST && session.uri == "/v1/edge/transcribe" ->
+                    raw(transcribe(readBody(session)))
 
                 // ---- Hub control surface (Part 10/13) ----
                 session.method == Method.GET && session.uri == "/v1/edge/models" ->

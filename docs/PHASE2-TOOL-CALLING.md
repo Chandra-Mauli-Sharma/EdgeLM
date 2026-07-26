@@ -80,8 +80,24 @@ Beyond returning a call for the app to run, the runtime can run tools itself and
 #   [tool] current_time -> Sat, 26 Jul 2026 ...
 ```
 
-This is the agent thesis in miniature: the model *reasons*, the runtime *acts*. What's
-deliberately NOT here yet (the real MCP broker): sandboxed third-party plugins + MCP
-servers, per-app consent for side-effecting tools, and the taint-tracked data-flow
-firewall (Part 7/9). The built-ins are read-only + pure, so none of that is needed for
-this slice — but the execution seam (`ToolBroker.execute`) is where it plugs in.
+This is the agent thesis in miniature: the model *reasons*, the runtime *acts*.
+
+### Consent gate for side-effecting tools
+
+Tools are classified `sideEffecting` or not. Read tools (`calculator`, `current_time`)
+always run. A side-effecting tool (`remember`, which writes a note to disk) runs **only if
+the caller passes `allow_side_effects: true`** — otherwise the agent loop refuses it and
+feeds the refusal back to the model. This is Part 9's "write/actuating tools require a
+confirmation surface", human-in-the-loop.
+
+```
+.\tools\edgelm.ps1 agent "remember that my meeting is at 3pm"
+#   [tool] remember -> refused: 'remember' has side effects and needs consent ...
+# with consent (curl):  POST /v1/edge/agent {"prompt":"...","allow_side_effects":true}
+#   [tool] remember -> saved
+```
+
+Still ahead for the full MCP broker: sandboxed third-party / app-registered plugins + MCP
+servers (executed in isolated processes), a real per-app consent UI (reusing
+`PermissionConsentActivity`), and the taint-tracked data-flow firewall (Part 7/9). The
+`sideEffecting` flag + `ToolBroker.execute` are the seams those plug into.

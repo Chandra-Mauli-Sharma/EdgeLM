@@ -55,6 +55,17 @@ object NativeBridge {
     /** L2-normalized embedding of [text], or null on failure. Blocking; call off-main. */
     external fun embed(handle: Long, text: String): FloatArray?
 
+    // ---- Vision / multimodal (Phase 2, -DEDGELM_VISION=ON) --------------------
+
+    /** Load an LLM + its mmproj projector as a vision model. Returns a handle, or 0. */
+    external fun loadVisionModel(modelPath: String, mmprojPath: String): Long
+
+    /** Generate a response about [image] (raw jpg/png/... bytes), streaming into [sink].
+     *  Returns tokens produced, or 0 if the lib was built without -DEDGELM_VISION. Blocking. */
+    external fun visionGenerate(handle: Long, prompt: String, image: ByteArray, sink: TokenSink): Int
+
+    external fun unloadVisionModel(handle: Long)
+
     /** Called from C++ to deliver tokens and check for cancellation. */
     interface TokenSink {
         fun onChunk(text: String)

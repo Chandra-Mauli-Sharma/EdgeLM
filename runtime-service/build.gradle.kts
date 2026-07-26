@@ -40,6 +40,7 @@ android {
                 // c++_shared only if you add a second .so that must share the STL.
                 arguments += "-DANDROID_STL=c++_static"
                 arguments += "-DEDGELM_BATCHED=ON"
+                arguments += "-DEDGELM_VISION=ON"
                 // --- GPU (Vulkan) build — OFF for the Play release ---------------------
                 // Enabling these gives GPU offload but (a) needs the LunarG Vulkan SDK +
                 // MSVC on the build host, (b) drops armeabi-v7a (ggml Vulkan is 64-bit only),

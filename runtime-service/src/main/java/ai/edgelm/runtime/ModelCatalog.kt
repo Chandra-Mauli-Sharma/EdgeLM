@@ -40,6 +40,17 @@ data class ModelSpec(
     val version: Int = 1,              // model version → pin/rollback (Hub)
     val family: String? = null,        // logical family for Hub.resolve(), e.g. "llm.small"
     val kind: String = "chat",         // "chat" (generation) | "embed" (embedding encoder)
+    // --- Delta updates (Hub, Part 10). When updating from [deltaFromVersion] to this
+    // version, fetch [deltaUrl] (an EDLT1 delta) and patch the resident file instead of
+    // a full re-download; [deltaSha256] is the hash of the RECONSTRUCTED file. ---
+    val deltaUrl: String? = null,
+    val deltaFromVersion: Int = 0,
+    val deltaSha256: String? = null,
+    // --- Vision (Phase 2, kind="vision"): a vision model is the LLM GGUF plus a separate
+    // multimodal projector (mmproj) GGUF — the CLIP/SigLIP encoder + projector that maps
+    // image features into the LLM's token space (llama.cpp mtmd). See docs/PHASE2-VISION.md. ---
+    val mmprojUrl: String? = null,
+    val mmprojSizeMb: Int? = null,
 )
 
 /**
@@ -183,6 +194,42 @@ object ModelCatalog {
             url = "https://huggingface.co/CompendiumLabs/bge-small-en-v1.5-gguf/resolve/main/bge-small-en-v1.5-q8_0.gguf?download=true",
             family = "embed.small",
             kind = "embed",
+        ),
+        // --- Phase 2: vision (kind="vision") — LLM + mmproj projector, llama.cpp mtmd. Only
+        // usable in a -DEDGELM_VISION build. ⚠️ VERIFY both HF URLs resolve without a token. ---
+        ModelSpec(
+            id = "smolvlm-500m",
+            name = "SmolVLM 500M (vision)",
+            params = "500M", quant = "Q8_0", sizeMb = 520, ctx = "8K",
+            minRamMb = 2048, license = "Apache-2.0",
+            blurb = "Tiny on-device vision-language model — caption images, answer visual questions, " +
+                    "light OCR, entirely locally. Requires a vision-enabled (-DEDGELM_VISION) runtime.",
+            useCase = "On-device image captioning / visual Q&A via llama.cpp mtmd.",
+            simpleName = "Vision Assistant",
+            simpleTagline = "Understands images on your phone — captions and answers about photos.",
+            url = "https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/SmolVLM-500M-Instruct-Q8_0.gguf?download=true",
+            kind = "vision",
+            family = "vlm.small",
+            mmprojUrl = "https://huggingface.co/ggml-org/SmolVLM-500M-Instruct-GGUF/resolve/main/mmproj-SmolVLM-500M-Instruct-Q8_0.gguf?download=true",
+            mmprojSizeMb = 190,
+        ),
+        // A genuinely capable VLM (Qwen2.5-VL 3B) — actually reads screenshots / documents /
+        // scenes, unlike the 500M. Bigger download + needs ~6 GB RAM. ⚠️ VERIFY both HF URLs.
+        ModelSpec(
+            id = "qwen2.5-vl-3b",
+            name = "Qwen2.5-VL 3B (vision)",
+            params = "3B", quant = "Q4_K_M", sizeMb = 2200, ctx = "32K",
+            minRamMb = 6144, license = "Apache-2.0",
+            blurb = "A capable on-device vision-language model — accurately describes images, reads " +
+                    "text/screenshots (OCR), and answers detailed visual questions. Flagship phones.",
+            useCase = "Accurate on-device image understanding, OCR, and visual Q&A (llama.cpp mtmd).",
+            simpleName = "Sharp Vision",
+            simpleTagline = "Actually reads your images — screenshots, documents, photos. Powerful phones only.",
+            url = "https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf?download=true",
+            kind = "vision",
+            family = "vlm.medium",
+            mmprojUrl = "https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf?download=true",
+            mmprojSizeMb = 1350,
         ),
     )
 

@@ -60,6 +60,25 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         setForeground(foregroundInfo(spec, -1, 0, 0))
 
         val dest = ModelStore.fileFor(applicationContext, spec.id, artifact.format)
+
+        // Delta fast-path (Part 10): if the resident version matches the delta's base,
+        // fetch the small delta and patch the file locally instead of re-downloading GBs.
+        // Any failure falls through to the normal full download.
+        if (Hub.deltaAvailable(applicationContext, spec)) {
+            if (runCatching { applyDeltaUpdate(spec, artifact.format, dest) }.getOrDefault(false)) {
+                Hub.recordInstalledVersion(applicationContext, spec.id, spec.version)
+                if (spec.kind == "chat") {
+                    ModelStore.setActive(applicationContext, spec.id)
+                    runCatching {
+                        applicationContext.startService(
+                            Intent(applicationContext, EdgeLMService::class.java).setAction("ai.edgelm.action.LOAD"))
+                    }
+                }
+                return@withContext Result.success(workDataOf(KEY_ID to id))
+            }
+            android.util.Log.w("DownloadWorker", "delta update failed for ${spec.id} — full download")
+        }
+
         val tmp = File(dest.parentFile, "${spec.id}.${artifact.format}.part")
         try {
             // Resume: if a partial file exists, ask the server (HTTP Range) to continue
@@ -113,6 +132,15 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
 
             if (!tmp.renameTo(dest)) throw IllegalStateException("could not finalize file")
 
+            // Vision models are two files: the LLM (just downloaded) + the mmproj projector.
+            if (spec.kind == "vision" && spec.mmprojUrl != null) {
+                val mmDest = ModelStore.fileFor(applicationContext, "${spec.id}.mmproj", "gguf")
+                if (!mmDest.exists() && !downloadSimple(spec.mmprojUrl!!, mmDest, spec)) {
+                    dest.delete()
+                    return@withContext Result.failure(workDataOf(KEY_ID to id, KEY_ERROR to "mmproj (vision projector) download failed"))
+                }
+            }
+
             Hub.recordInstalledVersion(applicationContext, spec.id, spec.version)
             // Only chat models become the active generation model + warm the runtime. An
             // embedding model is a separate resident model (loaded on first /v1/embeddings),
@@ -135,6 +163,76 @@ class DownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
                 else -> { tmp.delete(); Result.failure(workDataOf(KEY_ID to id, KEY_ERROR to (t.message ?: "download failed"))) }
             }
         }
+    }
+
+    /** Download the delta, apply it to the resident file, verify, and swap in atomically.
+     *  Returns true on success; false (with cleanup) so the caller can fall back to a full
+     *  download. Never destroys the old file unless the new one is verified + in place. */
+    private fun applyDeltaUpdate(spec: ModelSpec, format: String, dest: File): Boolean {
+        val old = ModelStore.installedFile(applicationContext, spec.id) ?: return false
+        val deltaTmp = File(dest.parentFile, "${spec.id}.delta")
+        val newTmp = File(dest.parentFile, "${spec.id}.$format.new")
+        try {
+            val c = (URL(spec.deltaUrl).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true; connectTimeout = 30000; readTimeout = 90000
+                setRequestProperty("User-Agent", "EdgeLM/1.0"); connect()
+            }
+            if (c.responseCode !in 200..299) return false
+            val total = c.contentLengthLong
+            c.inputStream.use { input ->
+                FileOutputStream(deltaTmp).use { out ->
+                    val buf = ByteArray(1 shl 16); var read = 0L; var n: Int; var lastPct = -1
+                    while (input.read(buf).also { n = it } >= 0) {
+                        if (isStopped) return false
+                        out.write(buf, 0, n); read += n
+                        val pct = if (total > 0) (read * 100 / total).toInt() else -1
+                        if (pct != lastPct) { lastPct = pct; notify(foregroundInfo(spec, pct, read, total).notification) }
+                    }
+                }
+            }
+            BinaryPatch.apply(old, deltaTmp, newTmp)          // reconstruct the new file
+            spec.deltaSha256?.let {                            // verify the RECONSTRUCTED file
+                if (!Hub.sha256Of(newTmp).equals(it, ignoreCase = true)) {
+                    android.util.Log.e("DownloadWorker", "delta verify failed"); return false
+                }
+            }
+            // Atomic-ish swap: keep a backup of the old file until the new one is in place.
+            val bak = File(dest.parentFile, "${spec.id}.$format.bak")
+            if (dest.exists()) dest.renameTo(bak)
+            return if (newTmp.renameTo(dest)) { bak.delete(); true }
+                   else { bak.renameTo(dest); false }         // restore on failure
+        } catch (t: Throwable) {
+            android.util.Log.w("DownloadWorker", "delta error: ${t.message}"); return false
+        } finally {
+            deltaTmp.delete()
+            if (newTmp.exists()) newTmp.delete()
+        }
+    }
+
+    /** Simple (no-resume) streaming download with progress — used for small extra artifacts
+     *  (mmproj). Returns true on success. */
+    private fun downloadSimple(url: String, dest: File, spec: ModelSpec): Boolean {
+        val tmp = File(dest.parentFile, dest.name + ".part")
+        return try {
+            val c = (URL(url).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true; connectTimeout = 30000; readTimeout = 90000
+                setRequestProperty("User-Agent", "EdgeLM/1.0"); connect()
+            }
+            if (c.responseCode !in 200..299) return false
+            val total = c.contentLengthLong
+            c.inputStream.use { input ->
+                FileOutputStream(tmp).use { out ->
+                    val buf = ByteArray(1 shl 16); var read = 0L; var n: Int; var lastPct = -1
+                    while (input.read(buf).also { n = it } >= 0) {
+                        if (isStopped) return false
+                        out.write(buf, 0, n); read += n
+                        val pct = if (total > 0) (read * 100 / total).toInt() else -1
+                        if (pct != lastPct) { lastPct = pct; notify(foregroundInfo(spec, pct, read, total).notification) }
+                    }
+                }
+            }
+            tmp.renameTo(dest)
+        } catch (t: Throwable) { tmp.delete(); false }
     }
 
     // ---- foreground notification ---------------------------------------------

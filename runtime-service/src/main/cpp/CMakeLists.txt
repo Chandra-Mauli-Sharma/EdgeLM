@@ -108,8 +108,28 @@ add_subdirectory(llama.cpp)
 option(EDGELM_BATCHED "Build the continuous-batching decode engine (increment 2)" OFF)
 set(EDGELM_EXTRA_SRC "")
 if(EDGELM_BATCHED)
-    set(EDGELM_EXTRA_SRC batched_runner.cpp)
+    list(APPEND EDGELM_EXTRA_SRC batched_runner.cpp)
     message(STATUS "EdgeLM: continuous-batching engine ENABLED (increment 2)")
+endif()
+
+# --- vision / multimodal (mtmd), opt-in (PHASE2-VISION.md) -------------------
+# OFF by default so the shipping build never compiles the vision stack. When ON,
+# build llama.cpp's mtmd library (vision encoder + projector + stb_image) and link
+# it. NOTE: tools/mtmd is normally built only under LLAMA_BUILD_TOOLS; we add it
+# directly. Verify on-device — it pulls in clip/stb and its own deps.
+option(EDGELM_VISION "Build the vision/multimodal (mtmd) path" OFF)
+if(EDGELM_VISION)
+    # tools/mtmd's CMakeLists uses LLAMA_INSTALL_VERSION (set only inside llama.cpp's own
+    # scope) in set_target_properties(mtmd VERSION ...). We add mtmd from OUR scope, where
+    # it's empty → "incorrect number of arguments". Define it here so the property is valid.
+    if(NOT DEFINED LLAMA_INSTALL_VERSION)
+        set(LLAMA_INSTALL_VERSION "0.0.0")
+    endif()
+    # No ffmpeg on device — disable mtmd's video path (image + audio still build).
+    set(MTMD_VIDEO OFF CACHE BOOL "" FORCE)
+    add_subdirectory(llama.cpp/tools/mtmd)
+    list(APPEND EDGELM_EXTRA_SRC vision_runner.cpp)
+    message(STATUS "EdgeLM: vision/multimodal (mtmd) ENABLED")
 endif()
 
 # --- our JNI shim ------------------------------------------------------------
@@ -124,6 +144,12 @@ endif()
 
 find_library(log-lib log)
 target_link_libraries(edgelm ${log-lib} llama)
+
+if(EDGELM_VISION)
+    target_compile_definitions(edgelm PRIVATE EDGELM_VISION)
+    target_include_directories(edgelm PRIVATE llama.cpp/tools/mtmd)
+    target_link_libraries(edgelm mtmd)
+endif()
 
 # 16 KB page-size alignment (Android 15+/Play from Nov 1 2025).
 target_link_options(edgelm PRIVATE "-Wl,-z,max-page-size=16384")

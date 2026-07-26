@@ -116,6 +116,16 @@ object Hub {
 
     fun pinnedVersion(ctx: Context, id: String): Int? = readProps(ctx)["$id.pinned"]?.toIntOrNull()
 
+    /** The installed version of [id], or null if not installed via Hub. */
+    fun installedVersion(ctx: Context, id: String): Int? = readProps(ctx)["$id.installed"]?.toIntOrNull()
+
+    /** True if [spec] can be updated with a delta: it declares one, and the resident file is
+     *  exactly the delta's base version. Otherwise the caller does a full download. */
+    fun deltaAvailable(ctx: Context, spec: ModelSpec): Boolean =
+        spec.deltaUrl != null && spec.deltaFromVersion > 0 &&
+        ModelStore.isInstalled(ctx, spec.id) &&
+        installedVersion(ctx, spec.id) == spec.deltaFromVersion
+
     /** True if [id] is pinned and the catalog's version differs → an update would break the pin. */
     fun updateBlockedByPin(ctx: Context, id: String): Boolean {
         val pinned = pinnedVersion(ctx, id) ?: return false

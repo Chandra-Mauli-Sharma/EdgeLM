@@ -42,6 +42,9 @@ edgelm - CLI for the EdgeLM on-device runtime (loopback shim, DEBUG builds).
   edgelm vectors ls                    list collections
   edgelm tools-demo ["prompt"]         demo OpenAI tool-calling (weather tool)
   edgelm agent "<question>"            agent loop: runtime runs built-in tools (calc, time)
+  edgelm rag <col> "<question>"        retrieval-augmented answer over a vector collection
+  edgelm caption <image> ["prompt"]    describe an image (needs -DEDGELM_VISION build)
+  edgelm transcribe <audio>            speech-to-text (needs an audio model + vision build)
   edgelm bench [n] [prompt]  time n runs: ttft, end-to-end + decode tok/s
 
   Env: EDGELM_HOST, EDGELM_PORT, EDGELM_MODEL. Needs curl + python3 (adb for forward).
@@ -144,6 +147,47 @@ if c.get("tool_calls"):
     print("tool_call: %s(%s)" % (f["name"], f["arguments"]))
 else:
     print("content: %s" % c.get("content"))
+PY
+}
+
+# Vision: caption / describe an image file (needs a -DEDGELM_VISION runtime build).
+cmd_caption() {
+  need curl; need python3
+  local path="${1:-}"; shift || true; local prompt="${*:-Describe this image in detail.}"
+  [ -f "$path" ] || die 'usage: edgelm caption <image.jpg> [prompt]'
+  local b64; b64=$(python3 -c 'import base64,sys; print(base64.b64encode(open(sys.argv[1],"rb").read()).decode())' "$path")
+  local resp; resp=$(curl -fsS -H 'Content-Type: application/json' \
+    -d "$(B64="$b64" P="$prompt" python3 -c 'import json,os; print(json.dumps({"image":os.environ["B64"],"prompt":os.environ["P"]}))')" \
+    "${BASE}/v1/edge/caption")
+  printf '%s' "$resp" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("error") or ("caption: "+d.get("caption","")))'
+}
+
+# Speech: transcribe an audio file (needs an audio-capable multimodal model + vision build).
+cmd_transcribe() {
+  need curl; need python3
+  local path="${1:-}"
+  [ -f "$path" ] || die 'usage: edgelm transcribe <audio.wav>'
+  local b64; b64=$(python3 -c 'import base64,sys; print(base64.b64encode(open(sys.argv[1],"rb").read()).decode())' "$path")
+  local resp; resp=$(curl -fsS -H 'Content-Type: application/json' \
+    -d "$(B64="$b64" python3 -c 'import json,os; print(json.dumps({"audio":os.environ["B64"]}))')" \
+    "${BASE}/v1/edge/transcribe")
+  printf '%s' "$resp" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("error") or ("text: "+d.get("text","")))'
+}
+
+# Retrieval-augmented chat: retrieve from a collection, answer grounded in the context.
+cmd_rag() {
+  need curl; need python3
+  local col="${1:-}"; shift || true; local q="$*"
+  { [ -n "$col" ] && [ -n "$q" ]; } || die 'usage: edgelm rag <collection> "question"'
+  local resp; resp=$(curl -fsS -H 'Content-Type: application/json' \
+    -d "$(COL="$col" Q="$q" python3 -c 'import json,os; print(json.dumps({"collection":os.environ["COL"],"query":os.environ["Q"],"top_k":4}))')" \
+    "${BASE}/v1/edge/rag")
+  printf '%s' "$resp" | python3 - <<'PY'
+import json, sys
+d = json.load(sys.stdin)
+if "error" in d: print(d["error"]); sys.exit(0)
+for s in d.get("sources", []): print("  [src %.3f] %s" % (s["score"], s["text"]))
+print("answer: %s" % d.get("answer", ""))
 PY
 }
 
@@ -298,6 +342,9 @@ main() {
     vectors) cmd_vectors "$@" ;;
     tools-demo) cmd_tools_demo "$@" ;;
     agent)   cmd_agent "$@" ;;
+    rag)     cmd_rag "$@" ;;
+    caption) cmd_caption "$@" ;;
+    transcribe) cmd_transcribe "$@" ;;
     bench)   cmd_bench "$@" ;;
     ""|-h|--help|help) usage ;;
     *) die "unknown command '$sub' (try: edgelm help)" ;;

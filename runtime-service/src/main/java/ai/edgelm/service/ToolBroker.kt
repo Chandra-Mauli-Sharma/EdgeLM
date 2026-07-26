@@ -2,6 +2,7 @@ package ai.edgelm.service
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -22,8 +23,15 @@ object ToolBroker {
         val name: String,
         val description: String,
         val parameters: JSONObject,
+        // Read tools auto-run; side-effecting ones (write/act) need explicit consent
+        // (arch doc Part 9: "write/actuating tools require a confirmation surface").
+        val sideEffecting: Boolean = false,
         val run: (JSONObject) -> String,
     )
+
+    // Where the `remember` tool writes (set by the service; null until init).
+    @Volatile private var notesFile: File? = null
+    fun init(filesDir: File) { notesFile = File(filesDir, "agent_notes.txt") }
 
     private val tools: List<Tool> = listOf(
         Tool(
@@ -43,6 +51,17 @@ object ToolBroker {
             description = "Get the current local date and time",
             parameters = JSONObject("""{"type":"object","properties":{}}"""),
             run = { _ -> SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss", Locale.US).format(Date()) },
+        ),
+        Tool(
+            name = "remember",
+            description = "Save a short note on this device for the user to recall later",
+            parameters = JSONObject("""{"type":"object","properties":{"note":{"type":"string"}},"required":["note"]}"""),
+            sideEffecting = true,   // writes to disk → consent-gated
+            run = { args ->
+                val note = args.optString("note")
+                val f = notesFile ?: return@Tool "error: notes storage unavailable"
+                runCatching { f.appendText(note + "\n"); "saved" }.getOrElse { "error: ${it.message}" }
+            },
         ),
     )
 

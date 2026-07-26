@@ -21,6 +21,8 @@
     .\tools\edgelm.ps1 vectors ls                    list collections
     .\tools\edgelm.ps1 tools-demo ["prompt"]         demo OpenAI tool-calling (weather tool)
     .\tools\edgelm.ps1 agent "question"              agent loop: runtime runs built-in tools
+    .\tools\edgelm.ps1 rag <col> "question"          retrieval-augmented answer over a collection
+    .\tools\edgelm.ps1 caption <image> ["prompt"]    describe an image (needs -DEDGELM_VISION build)
     .\tools\edgelm.ps1 bench [n] [prompt]  time n runs: ttft, end-to-end + decode tok/s
 
   Env: EDGELM_HOST (default 127.0.0.1), EDGELM_PORT (default 1408),
@@ -179,6 +181,39 @@ switch ($Command.ToLower()) {
     $resp = Invoke-RestMethod -Method Post -Uri "$Base/v1/edge/agent" -ContentType "application/json" -Body $body
     if ($resp.error) { Write-Host $resp.error; break }
     foreach ($s in $resp.steps) { Write-Host ("  [tool] {0} -> {1}" -f $s.tool, $s.result) }
+    Write-Host ("answer: {0}" -f $resp.answer)
+  }
+
+  "caption" {
+    if ($Rest.Count -lt 1) { Fail 'usage: .\tools\edgelm.ps1 caption <image.jpg> ["prompt"]' }
+    $path = $Rest[0]
+    if (-not (Test-Path $path)) { Fail "no such file: $path" }
+    $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($path))
+    $prompt = if ($Rest.Count -ge 2) { ($Rest[1..($Rest.Count-1)] -join " ") } else { "Describe this image in detail." }
+    $body = @{ image = $b64; prompt = $prompt } | ConvertTo-Json -Compress
+    $resp = Invoke-RestMethod -Method Post -Uri "$Base/v1/edge/caption" -ContentType "application/json" -Body $body
+    if ($resp.error) { Write-Host $resp.error; break }
+    Write-Host ("caption: {0}" -f $resp.caption)
+  }
+
+  "transcribe" {
+    if ($Rest.Count -lt 1) { Fail 'usage: .\tools\edgelm.ps1 transcribe <audio.wav>' }
+    $path = $Rest[0]
+    if (-not (Test-Path $path)) { Fail "no such file: $path" }
+    $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($path))
+    $body = @{ audio = $b64 } | ConvertTo-Json -Compress
+    $resp = Invoke-RestMethod -Method Post -Uri "$Base/v1/edge/transcribe" -ContentType "application/json" -Body $body
+    if ($resp.error) { Write-Host $resp.error; break }
+    Write-Host ("text: {0}" -f $resp.text)
+  }
+
+  "rag" {
+    if ($Rest.Count -lt 2) { Fail 'usage: .\tools\edgelm.ps1 rag <collection> "question"' }
+    $col = $Rest[0]; $q = ($Rest[1..($Rest.Count-1)] -join " ")
+    $body = @{ collection = $col; query = $q; top_k = 4 } | ConvertTo-Json -Compress
+    $resp = Invoke-RestMethod -Method Post -Uri "$Base/v1/edge/rag" -ContentType "application/json" -Body $body
+    if ($resp.error) { Write-Host $resp.error; break }
+    foreach ($s in $resp.sources) { Write-Host ("  [src {0:N3}] {1}" -f $s.score, $s.text) }
     Write-Host ("answer: {0}" -f $resp.answer)
   }
 

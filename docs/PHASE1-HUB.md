@@ -32,6 +32,23 @@ Hashing is streaming (1 MB chunks) so multi-GB artifacts verify in constant memo
 **Next step:** cryptographic *signing* — a Hub-signed manifest verified against a
 pinned public key — layers on top of this content-addressing (not in this cut).
 
+### 4. Delta updates (Phase 2)
+A model update can ship as a small binary **delta** against the resident version instead
+of a full re-download (Part 10 — "a fine-tune bump downloads MBs, not GBs").
+
+- `ModelSpec` gains `deltaUrl` / `deltaFromVersion` / `deltaSha256`.
+- `Hub.deltaAvailable(ctx, spec)` = the resident file is exactly `deltaFromVersion` and a
+  delta is published. `DownloadWorker` then downloads the delta and calls
+  `BinaryPatch.apply(old, delta, new)` — a streaming, constant-memory reconstruction —
+  verifies the result against `deltaSha256`, and swaps it in with a backup fallback. Any
+  failure falls through to a normal full download, so it's always safe.
+- Format `EDLT1` (copy-from-old / add-new ops). The on-device applier is `BinaryPatch.kt`
+  (unit-tested in `BinaryPatchTest`); the server-side generator is `tools/gen_delta.py`.
+
+```
+python tools/gen_delta.py old.gguf new.gguf out.delta   # prints size + deltaSha256
+```
+
 ### 3. Pin & rollback
 `Hub.recordInstalledVersion` stamps the installed version on a verified install.
 `Hub.pin/unpin/pinnedVersion` let an app hold a known-good version;
