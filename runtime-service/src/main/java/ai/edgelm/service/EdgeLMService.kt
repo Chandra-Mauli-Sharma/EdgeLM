@@ -520,6 +520,7 @@ class EdgeLMService : Service() {
             rag = { body -> edgeRag(body) },
             caption = { body -> edgeCaption(body) },
             transcribe = { body -> edgeTranscribe(body) },
+            appTools = { op, body -> edgeAppTools(op, body) },
         ).also { server ->
             runCatching { server.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false) }
                 .onSuccess { Log.i(TAG, "HTTP shim on http://127.0.0.1:$HTTP_PORT/v1") }
@@ -644,8 +645,9 @@ class EdgeLMService : Service() {
         val d = broker.checkHttp(CapabilityBroker.Capability.CHAT)
         if (d is CapabilityBroker.Decision.Deny) return errJson("EdgeLM: ${d.reason}")
 
-        // Built-in tools + a final_answer tool, so every turn is a forced, valid tool call.
+        // Built-in tools + app-registered external tools + a final_answer tool.
         val tools = ToolBroker.openAiTools()
+        AppToolRegistry.openAiTools().let { app -> for (i in 0 until app.length()) tools.put(app.getJSONObject(i)) }
         tools.put(JSONObject().put("type", "function").put("function", JSONObject()
             .put("name", "final_answer")
             .put("description", "Give the final answer to the user once you have what you need")
@@ -663,11 +665,18 @@ class EdgeLMService : Service() {
             val name = fn.getString("name")
             val args = runCatching { JSONObject(fn.getString("arguments")) }.getOrDefault(JSONObject())
             if (name == "final_answer") { answer = args.optString("answer").ifBlank { convo }; break }
-            // Consent gate: refuse a side-effecting tool unless the caller allowed it.
-            val tool = ToolBroker.byName(name)
-            val result = if (tool != null && tool.sideEffecting && !allowSideEffects)
-                "refused: '$name' has side effects and needs consent (set allow_side_effects=true)"
-            else ToolBroker.execute(name, args)          // executed IN the runtime
+            // Route to a built-in tool or an app-registered webhook. App tools are always
+            // side-effecting (they hit the network); consent-gate side effects.
+            val builtin = ToolBroker.byName(name)
+            val appTool = AppToolRegistry.byName(name)
+            val sideEffecting = (builtin?.sideEffecting == true) || appTool != null
+            val result = when {
+                sideEffecting && !allowSideEffects ->
+                    "refused: '$name' has side effects and needs consent (set allow_side_effects=true)"
+                builtin != null -> ToolBroker.execute(name, args)          // in-runtime
+                appTool != null -> AppToolRegistry.execute(name, args)     // app webhook
+                else -> "error: unknown tool '$name'"
+            }
             steps.put(JSONObject().put("tool", name).put("arguments", args).put("result", result))
             Log.i(TAG, "agent step $step: $name($args) -> $result")
             convo = "$userPrompt\n\n[The $name tool returned: $result]\n" +
@@ -679,6 +688,32 @@ class EdgeLMService : Service() {
             .toString()
     }
 
+    /** Register/unregister/list app-provided external tools (webhooks) for the agent. */
+    private fun edgeAppTools(op: String, body: String): String = try {
+        when (op) {
+            "register" -> {
+                val o = JSONObject(body)
+                val name = o.optString("name"); val url = o.optString("url")
+                if (name.isBlank() || url.isBlank()) errJson("missing 'name' or 'url'")
+                else {
+                    val params = o.optJSONObject("parameters") ?: JSONObject("""{"type":"object","properties":{}}""")
+                    AppToolRegistry.register(name, o.optString("description"), params, url)
+                    JSONObject().put("registered", name).toString()
+                }
+            }
+            "unregister" -> {
+                val name = JSONObject(body).optString("name")
+                if (name.isBlank()) errJson("missing 'name'") else { AppToolRegistry.unregister(name); JSONObject().put("unregistered", name).toString() }
+            }
+            "list" -> {
+                val arr = JSONArray()
+                AppToolRegistry.all().forEach { arr.put(JSONObject().put("name", it.name).put("description", it.description).put("url", it.url)) }
+                JSONObject().put("tools", arr).toString()
+            }
+            else -> errJson("unknown tools op '$op'")
+        }
+    } catch (t: Throwable) { errJson(t.message ?: "tools error") }
+
     // ---- Vision / multimodal (Phase 2) ----------------------------------------
 
     @Volatile private var visionHandle: Long = 0
@@ -687,10 +722,14 @@ class EdgeLMService : Service() {
     /** Lazily load the catalog's vision model (LLM + mmproj), if both are installed. */
     @Synchronized private fun ensureVisionModelLoaded(): Long {
         if (visionHandle != 0L) return visionHandle
-        val spec = ModelCatalog.models.firstOrNull { it.kind == "vision" } ?: return 0
+        // Pick whichever vision model is actually installed (LLM + mmproj both present), so
+        // pulling a bigger VLM uses it instead of always the first catalog entry.
+        val spec = ModelCatalog.models.firstOrNull {
+            it.kind == "vision" && ModelStore.isInstalled(this, it.id) &&
+                ModelStore.fileFor(this, "${it.id}.mmproj", "gguf").exists()
+        } ?: return 0
         val llm = ModelStore.installedFile(this, spec.id) ?: return 0
         val mmproj = ModelStore.fileFor(this, "${spec.id}.mmproj", "gguf")
-        if (!mmproj.exists()) return 0
         visionHandle = NativeBridge.loadVisionModel(llm.absolutePath, mmproj.absolutePath)
         if (visionHandle != 0L) Log.i(TAG, "vision model loaded: ${spec.id}")
         return visionHandle

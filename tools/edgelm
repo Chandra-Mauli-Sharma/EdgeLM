@@ -42,6 +42,8 @@ edgelm - CLI for the EdgeLM on-device runtime (loopback shim, DEBUG builds).
   edgelm vectors ls                    list collections
   edgelm tools-demo ["prompt"]         demo OpenAI tool-calling (weather tool)
   edgelm agent "<question>"            agent loop: runtime runs built-in tools (calc, time)
+  edgelm tools register <name> <url>   register an external webhook tool for the agent
+  edgelm tools list|unregister <name>  manage registered tools
   edgelm rag <col> "<question>"        retrieval-augmented answer over a vector collection
   edgelm caption <image> ["prompt"]    describe an image (needs -DEDGELM_VISION build)
   edgelm transcribe <audio>            speech-to-text (needs an audio model + vision build)
@@ -191,12 +193,33 @@ print("answer: %s" % d.get("answer", ""))
 PY
 }
 
+# App tool registry: register/list/unregister external webhook tools for the agent.
+cmd_apptools() {
+  need curl; need python3
+  local sub="${1:-list}"; shift || true
+  case "$sub" in
+    register)
+      local name="${1:-}" url="${2:-}"; shift 2 2>/dev/null || true; local desc="$*"
+      { [ -n "$name" ] && [ -n "$url" ]; } || die 'usage: edgelm tools register <name> <url> ["description"]'
+      curl -fsS -H 'Content-Type: application/json' \
+        -d "$(NAME="$name" URL="$url" DESC="$desc" python3 -c 'import json,os; print(json.dumps({"name":os.environ["NAME"],"url":os.environ["URL"],"description":os.environ["DESC"]}))')" \
+        "${BASE}/v1/edge/tools/register"; echo ;;
+    unregister)
+      local name="${1:-}"; [ -n "$name" ] || die 'usage: edgelm tools unregister <name>'
+      curl -fsS -H 'Content-Type: application/json' -d "$(printf '{"name":"%s"}' "$name")" "${BASE}/v1/edge/tools/unregister"; echo ;;
+    list) curl -fsS "${BASE}/v1/edge/tools"; echo ;;
+    *) die 'usage: edgelm tools register|list|unregister ...' ;;
+  esac
+}
+
 # Agent loop: the runtime executes built-in tools (calculator, current_time) and answers.
 cmd_agent() {
   need curl; need python3
-  local prompt="$*"; [ -n "$prompt" ] || die 'usage: edgelm agent "question"'
+  local allow=false; local args=()
+  for a in "$@"; do if [ "$a" = "--allow" ]; then allow=true; else args+=("$a"); fi; done
+  local prompt="${args[*]}"; [ -n "$prompt" ] || die 'usage: edgelm agent "question" [--allow]'
   local resp; resp=$(curl -fsS -H 'Content-Type: application/json' \
-    -d "$(PROMPT="$prompt" python3 -c 'import json,os; print(json.dumps({"prompt":os.environ["PROMPT"]}))')" \
+    -d "$(PROMPT="$prompt" ALLOW="$allow" python3 -c 'import json,os; print(json.dumps({"prompt":os.environ["PROMPT"],"allow_side_effects":os.environ["ALLOW"]=="true"}))')" \
     "${BASE}/v1/edge/agent")
   printf '%s' "$resp" | python3 - <<'PY'
 import json, sys
@@ -342,6 +365,7 @@ main() {
     vectors) cmd_vectors "$@" ;;
     tools-demo) cmd_tools_demo "$@" ;;
     agent)   cmd_agent "$@" ;;
+    tools)   cmd_apptools "$@" ;;
     rag)     cmd_rag "$@" ;;
     caption) cmd_caption "$@" ;;
     transcribe) cmd_transcribe "$@" ;;

@@ -21,6 +21,8 @@
     .\tools\edgelm.ps1 vectors ls                    list collections
     .\tools\edgelm.ps1 tools-demo ["prompt"]         demo OpenAI tool-calling (weather tool)
     .\tools\edgelm.ps1 agent "question"              agent loop: runtime runs built-in tools
+    .\tools\edgelm.ps1 tools register <name> <url>   register an external webhook tool
+    .\tools\edgelm.ps1 tools list|unregister <name>  manage registered tools
     .\tools\edgelm.ps1 rag <col> "question"          retrieval-augmented answer over a collection
     .\tools\edgelm.ps1 caption <image> ["prompt"]    describe an image (needs -DEDGELM_VISION build)
     .\tools\edgelm.ps1 bench [n] [prompt]  time n runs: ttft, end-to-end + decode tok/s
@@ -174,10 +176,30 @@ switch ($Command.ToLower()) {
     else { Write-Host ("content: {0}" -f $c.content) }
   }
 
+  "tools" {
+    $sub = if ($Rest.Count -ge 1) { $Rest[0] } else { "list" }
+    switch ($sub) {
+      "register" {
+        if ($Rest.Count -lt 3) { Fail 'usage: .\tools\edgelm.ps1 tools register <name> <url> ["description"]' }
+        $desc = if ($Rest.Count -ge 4) { ($Rest[3..($Rest.Count-1)] -join " ") } else { "" }
+        $body = @{ name = $Rest[1]; url = $Rest[2]; description = $desc } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Method Post -Uri "$Base/v1/edge/tools/register" -ContentType "application/json" -Body $body | ConvertTo-Json -Depth 6
+      }
+      "unregister" {
+        if ($Rest.Count -lt 2) { Fail 'usage: .\tools\edgelm.ps1 tools unregister <name>' }
+        $body = @{ name = $Rest[1] } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Method Post -Uri "$Base/v1/edge/tools/unregister" -ContentType "application/json" -Body $body | ConvertTo-Json -Depth 6
+      }
+      "list" { Invoke-RestMethod -Uri "$Base/v1/edge/tools" | ConvertTo-Json -Depth 6 }
+      default { Fail 'usage: .\tools\edgelm.ps1 tools register|list|unregister ...' }
+    }
+  }
+
   "agent" {
-    $prompt = ($Rest -join " ").Trim()
-    if (-not $prompt) { Fail 'usage: .\tools\edgelm.ps1 agent "question"' }
-    $body = @{ prompt = $prompt } | ConvertTo-Json -Compress
+    $allow = $Rest -contains "--allow"
+    $prompt = (($Rest | Where-Object { $_ -ne "--allow" }) -join " ").Trim()
+    if (-not $prompt) { Fail 'usage: .\tools\edgelm.ps1 agent "question" [--allow]' }
+    $body = @{ prompt = $prompt; allow_side_effects = $allow } | ConvertTo-Json -Compress
     $resp = Invoke-RestMethod -Method Post -Uri "$Base/v1/edge/agent" -ContentType "application/json" -Body $body
     if ($resp.error) { Write-Host $resp.error; break }
     foreach ($s in $resp.steps) { Write-Host ("  [tool] {0} -> {1}" -f $s.tool, $s.result) }

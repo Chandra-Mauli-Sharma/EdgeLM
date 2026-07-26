@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Allow cleartext (plain HTTP) traffic so the agent's external tool broker
+  (AppToolRegistry) can call local / LAN developer webhooks. Android blocks cleartext by
+  default on targetSdk 28+, which otherwise fails a tool call to an http:// URL with
+  "Cleartext HTTP traffic to <host> not permitted".
+
+  Model downloads (Hugging Face) are HTTPS and the loopback shim is localhost, so neither
+  is affected by this. For a hardened/production build, tighten this to HTTPS-only webhooks
+  or a <domain-config> allowlist of specific tool hosts.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

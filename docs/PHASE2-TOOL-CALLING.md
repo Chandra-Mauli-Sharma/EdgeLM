@@ -97,7 +97,27 @@ confirmation surface", human-in-the-loop.
 #   [tool] remember -> saved
 ```
 
-Still ahead for the full MCP broker: sandboxed third-party / app-registered plugins + MCP
-servers (executed in isolated processes), a real per-app consent UI (reusing
-`PermissionConsentActivity`), and the taint-tracked data-flow firewall (Part 7/9). The
-`sideEffecting` flag + `ToolBroker.execute` are the seams those plug into.
+## App-registered external tools (`AppToolRegistry`, the MCP-server host)
+
+Apps extend the agent with their own tools, registered as **HTTP webhooks** — the
+MCP-server model (Part 9). This is what makes EdgeLM a *platform*: the runtime doesn't
+ship every tool; apps bring their own.
+
+- `POST /v1/edge/tools/register {name, description, parameters, url}` — register a tool.
+  `GET /v1/edge/tools` lists them; `POST /v1/edge/tools/unregister {name}` removes one.
+- The agent merges registered tools with the built-ins. When the model calls one, the
+  runtime **POSTs the arguments to the tool's `url`** and feeds the response back into the
+  loop. Registered tools are side-effecting → consent-gated (`allow_side_effects`).
+- CLI: `edgelm tools register weather http://.../weather "get weather"`, `edgelm tools list`.
+
+```
+# a trivial local webhook: any server that echoes {"result": "..."} for POST {arguments}
+edgelm tools register echo http://10.0.2.2:9000/echo "echo the input back"
+edgelm agent "use the echo tool on the word banana"   # (with allow_side_effects=true)
+#   [tool] echo -> banana
+```
+
+The runtime calling registered URLs is the network-egress surface the **data-flow
+firewall** (Part 7/9) governs — taint-tracking local data so it can't be laundered to an
+external tool. That firewall + per-app consent UI + sandboxed *in-process* plugins are the
+remaining broker work; `AppToolRegistry.execute` and the `sideEffecting` gate are the seams.

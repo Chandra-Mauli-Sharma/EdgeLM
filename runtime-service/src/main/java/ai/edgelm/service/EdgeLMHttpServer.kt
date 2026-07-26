@@ -49,6 +49,8 @@ class EdgeLMHttpServer(
     private val caption: (body: String) -> String = { "{\"error\":\"vision unavailable\"}" },
     // Speech: raw body {audio (base64), prompt} -> {text}.
     private val transcribe: (body: String) -> String = { "{\"error\":\"speech unavailable\"}" },
+    // App tool registry: op = register|unregister|list, raw body.
+    private val appTools: (op: String, body: String) -> String = { _, _ -> "{\"error\":\"tools unavailable\"}" },
 ) : NanoHTTPD("127.0.0.1", port) {
 
     data class GenStats(val tokenCount: Int, val elapsedMs: Long, val ttftMs: Long = 0)
@@ -92,6 +94,12 @@ class EdgeLMHttpServer(
                 // Speech: transcribe audio.
                 session.method == Method.POST && session.uri == "/v1/edge/transcribe" ->
                     raw(transcribe(readBody(session)))
+
+                // App tool registry (external webhook tools for the agent).
+                session.method == Method.GET && session.uri == "/v1/edge/tools" ->
+                    raw(appTools("list", ""))
+                session.method == Method.POST && session.uri.startsWith("/v1/edge/tools/") ->
+                    raw(appTools(session.uri.removePrefix("/v1/edge/tools/"), readBody(session)))
 
                 // ---- Hub control surface (Part 10/13) ----
                 session.method == Method.GET && session.uri == "/v1/edge/models" ->

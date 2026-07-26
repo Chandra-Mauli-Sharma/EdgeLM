@@ -7,7 +7,13 @@ local.properties
 .DS_Store
 # llama.cpp is vendored as a submodule under runtime-service/src/main/cpp/llama.cpp
 # model weights are NOT committed — push them with adb (see docs/PHASE-0-BUILD-PLAN.md)
+# (any of these would blow past GitHub's 100 MB file limit)
 *.gguf
+*.litertlm
+*.task
+*.tflite
+*.bin
+*.mmproj
 
 # Release signing — never commit the keystore or its passwords
 keystore.properties
