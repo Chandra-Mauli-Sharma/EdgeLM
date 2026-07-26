@@ -639,9 +639,12 @@ class EdgeLMService : Service() {
         val req = JSONObject(body)
         val userPrompt = req.optString("prompt")
         if (userPrompt.isBlank()) return errJson("missing 'prompt'")
-        // Side-effecting tools (e.g. `remember`, which writes to disk) run only with explicit
-        // consent — the human-in-the-loop gate (Part 9). Read-only tools always run.
+        // Two distinct consents (data-flow firewall, Part 7/9):
+        //  - allow_side_effects: a tool acts locally (e.g. `remember` writes to disk).
+        //  - allow_egress:       a tool sends data OFF-DEVICE (an external webhook). Stricter,
+        //    because it's the exfiltration surface — local data leaving the phone.
         val allowSideEffects = req.optBoolean("allow_side_effects", false)
+        val allowEgress = req.optBoolean("allow_egress", false)
         val d = broker.checkHttp(CapabilityBroker.Capability.CHAT)
         if (d is CapabilityBroker.Decision.Deny) return errJson("EdgeLM: ${d.reason}")
 
@@ -665,19 +668,26 @@ class EdgeLMService : Service() {
             val name = fn.getString("name")
             val args = runCatching { JSONObject(fn.getString("arguments")) }.getOrDefault(JSONObject())
             if (name == "final_answer") { answer = args.optString("answer").ifBlank { convo }; break }
-            // Route to a built-in tool or an app-registered webhook. App tools are always
-            // side-effecting (they hit the network); consent-gate side effects.
+            // Route to a built-in tool or an app-registered webhook, under the firewall:
+            // egress (webhook) tools need allow_egress; local side-effects need allow_side_effects.
             val builtin = ToolBroker.byName(name)
             val appTool = AppToolRegistry.byName(name)
-            val sideEffecting = (builtin?.sideEffecting == true) || appTool != null
             val result = when {
-                sideEffecting && !allowSideEffects ->
-                    "refused: '$name' has side effects and needs consent (set allow_side_effects=true)"
+                appTool != null && !allowEgress ->
+                    "refused: '$name' sends data off-device (network egress) — needs consent (allow_egress=true)"
+                builtin?.sideEffecting == true && !allowSideEffects ->
+                    "refused: '$name' has side effects — needs consent (allow_side_effects=true)"
                 builtin != null -> ToolBroker.execute(name, args)          // in-runtime
-                appTool != null -> AppToolRegistry.execute(name, args)     // app webhook
+                appTool != null -> AppToolRegistry.execute(name, args)     // app webhook (egress)
                 else -> "error: unknown tool '$name'"
             }
-            steps.put(JSONObject().put("tool", name).put("arguments", args).put("result", result))
+            // Legibility: record exactly what data left the device for each egress call.
+            if (appTool != null && allowEgress) {
+                Log.i(TAG, "EGRESS: '$name' -> ${appTool.url} sent=$args")
+            }
+            val stepObj = JSONObject().put("tool", name).put("arguments", args).put("result", result)
+            if (appTool != null) stepObj.put("egress", appTool.url)   // where the data went off-device
+            steps.put(stepObj)
             Log.i(TAG, "agent step $step: $name($args) -> $result")
             convo = "$userPrompt\n\n[The $name tool returned: $result]\n" +
                     "Now call final_answer with the answer for the user (include the result)."

@@ -215,17 +215,19 @@ cmd_apptools() {
 # Agent loop: the runtime executes built-in tools (calculator, current_time) and answers.
 cmd_agent() {
   need curl; need python3
-  local allow=false; local args=()
-  for a in "$@"; do if [ "$a" = "--allow" ]; then allow=true; else args+=("$a"); fi; done
-  local prompt="${args[*]}"; [ -n "$prompt" ] || die 'usage: edgelm agent "question" [--allow]'
+  local allow=false; local egress=false; local args=()
+  for a in "$@"; do case "$a" in --allow) allow=true;; --allow-egress) egress=true;; *) args+=("$a");; esac; done
+  local prompt="${args[*]}"; [ -n "$prompt" ] || die 'usage: edgelm agent "question" [--allow] [--allow-egress]'
   local resp; resp=$(curl -fsS -H 'Content-Type: application/json' \
-    -d "$(PROMPT="$prompt" ALLOW="$allow" python3 -c 'import json,os; print(json.dumps({"prompt":os.environ["PROMPT"],"allow_side_effects":os.environ["ALLOW"]=="true"}))')" \
+    -d "$(PROMPT="$prompt" ALLOW="$allow" EGRESS="$egress" python3 -c 'import json,os; print(json.dumps({"prompt":os.environ["PROMPT"],"allow_side_effects":os.environ["ALLOW"]=="true","allow_egress":os.environ["EGRESS"]=="true"}))')" \
     "${BASE}/v1/edge/agent")
   printf '%s' "$resp" | python3 - <<'PY'
 import json, sys
 d = json.load(sys.stdin)
 if "error" in d: print(d["error"]); sys.exit(0)
-for s in d.get("steps", []): print("  [tool] %s -> %s" % (s["tool"], s["result"]))
+for s in d.get("steps", []):
+    e = ("   (egress -> %s)" % s["egress"]) if s.get("egress") else ""
+    print("  [tool] %s -> %s%s" % (s["tool"], s["result"], e))
 print("answer: %s" % d.get("answer", ""))
 PY
 }

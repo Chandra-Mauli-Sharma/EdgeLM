@@ -197,12 +197,16 @@ switch ($Command.ToLower()) {
 
   "agent" {
     $allow = $Rest -contains "--allow"
-    $prompt = (($Rest | Where-Object { $_ -ne "--allow" }) -join " ").Trim()
-    if (-not $prompt) { Fail 'usage: .\tools\edgelm.ps1 agent "question" [--allow]' }
-    $body = @{ prompt = $prompt; allow_side_effects = $allow } | ConvertTo-Json -Compress
+    $egress = $Rest -contains "--allow-egress"
+    $prompt = (($Rest | Where-Object { $_ -ne "--allow" -and $_ -ne "--allow-egress" }) -join " ").Trim()
+    if (-not $prompt) { Fail 'usage: .\tools\edgelm.ps1 agent "question" [--allow] [--allow-egress]' }
+    $body = @{ prompt = $prompt; allow_side_effects = $allow; allow_egress = $egress } | ConvertTo-Json -Compress
     $resp = Invoke-RestMethod -Method Post -Uri "$Base/v1/edge/agent" -ContentType "application/json" -Body $body
     if ($resp.error) { Write-Host $resp.error; break }
-    foreach ($s in $resp.steps) { Write-Host ("  [tool] {0} -> {1}" -f $s.tool, $s.result) }
+    foreach ($s in $resp.steps) {
+      if ($s.egress) { Write-Host ("  [tool] {0} -> {1}   (egress -> {2})" -f $s.tool, $s.result, $s.egress) }
+      else { Write-Host ("  [tool] {0} -> {1}" -f $s.tool, $s.result) }
+    }
     Write-Host ("answer: {0}" -f $resp.answer)
   }
 

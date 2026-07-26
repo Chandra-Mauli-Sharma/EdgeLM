@@ -117,7 +117,26 @@ edgelm agent "use the echo tool on the word banana"   # (with allow_side_effects
 #   [tool] echo -> banana
 ```
 
-The runtime calling registered URLs is the network-egress surface the **data-flow
-firewall** (Part 7/9) governs — taint-tracking local data so it can't be laundered to an
-external tool. That firewall + per-app consent UI + sandboxed *in-process* plugins are the
-remaining broker work; `AppToolRegistry.execute` and the `sideEffecting` gate are the seams.
+## Data-flow firewall v1
+
+The agent now separates two consents (Part 7/9):
+
+- **`allow_side_effects`** — a tool acts *locally* (e.g. `remember` writes to disk).
+- **`allow_egress`** — a tool sends data *off-device* (an external webhook). Stricter,
+  because it's the exfiltration surface.
+
+External (webhook) tools require `allow_egress`, not just `allow_side_effects` — so a local
+tool call and "data leaves the phone" are distinct decisions. And every egress call is
+**legible**: the agent step records the destination URL (`"egress": "<url>"`) and the
+runtime logs `EGRESS: <tool> -> <url> sent=<args>`, so you can always see exactly what left.
+
+```
+edgelm agent "echo the word banana" --allow-egress   # webhook tool needs egress consent
+#   [tool] echo -> banana   (egress -> http://192.168.1.42:9000/echo)
+```
+
+Still ahead (full firewall): **taint-tracking** — marking data read under a local-only
+capability (RAG context, local tool results) so the runtime can *block* it from flowing to
+an egress tool without fresh consent, not just report it. Plus a per-app consent UI and
+sandboxed *in-process* plugins. The `allow_egress` gate + per-step egress record are the
+seams those build on.
