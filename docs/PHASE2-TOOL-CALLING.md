@@ -132,8 +132,28 @@ runtime logs `EGRESS: <tool> -> <url> sent=<args>`, so you can always see exactl
 
 ```
 edgelm agent "echo the word banana" --allow-egress   # webhook tool needs egress consent
-#   [tool] echo -> banana   (egress -> http://192.168.1.42:9000/echo)
+#   [tool] echo -> banana   (egress -> http://127.0.0.1:9000/echo)
 ```
+
+### Reproducing the egress demo (adb reverse — no firewall/admin)
+
+A physical device can't reach the dev machine's LAN IP if Windows Firewall drops the
+inbound port (a 10s **timeout**, vs. an instant "connection refused" when the server is
+actually down). Rather than adding a firewall rule (needs admin
+`New-NetFirewallRule -LocalPort 9000 -Protocol TCP -Direction Inbound -Action Allow`),
+tunnel the port over adb — the device hits its *own* loopback, which forwards to the PC:
+
+```
+python tools/echo_webhook.py                    # binds 0.0.0.0:9000 on the PC
+adb reverse tcp:9000 tcp:9000                    # device 127.0.0.1:9000 -> PC 127.0.0.1:9000
+edgelm tools register echo http://127.0.0.1:9000/echo "echo the input"
+edgelm agent "echo the word banana" --allow-egress
+#   [tool] echo -> echo: {"value":"banana"}   (egress -> http://127.0.0.1:9000/echo)
+#   answer: banana
+```
+
+No LAN IP, no firewall rule, no admin. Loopback is also exempt from the cleartext-HTTP
+restriction, so the network-security config isn't a factor. Validated on device 2026-07-26.
 
 Still ahead (full firewall): **taint-tracking** — marking data read under a local-only
 capability (RAG context, local tool results) so the runtime can *block* it from flowing to
