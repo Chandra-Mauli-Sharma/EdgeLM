@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
+  <title>EdgeLM Hub</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">
+      <svg class="ghost" viewBox="70 60 372 412" width="26" height="29" aria-hidden="true">
+        <defs>
+          <linearGradient id="matcha" x1="80" y1="80" x2="440" y2="470" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#D4FF6E" />
+            <stop offset="0.6" stop-color="#7CEB1E" />
+            <stop offset="1" stop-color="#2DE3FF" />
+          </linearGradient>
+          <radialGradient id="gloss" cx="165" cy="150" r="120" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.5" />
+            <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
+          </radialGradient>
+        </defs>
+        <path d="M256,80 C356,80 432,150 432,244 C432,300 404,340 404,372 C404,404 380,432 352,432 C330,432 320,414 300,414 C280,414 276,452 256,452 C236,452 232,414 212,414 C192,414 182,432 160,432 C132,432 108,404 108,372 C108,340 80,300 80,244 C80,150 156,80 256,80 Z" fill="url(#matcha)" />
+        <ellipse cx="196" cy="176" rx="104" ry="60" fill="url(#gloss)" />
+        <circle cx="330" cy="250" r="22" fill="#0B0E10" />
+      </svg>
+      <div class="wordmark">
+        <span class="name">EdgeLM<em> Hub</em></span>
+        <span class="tag">on-device AI runtime</span>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <span class="status-pill"><span class="dot" id="statusDot"></span><span id="statusText">connecting…</span></span>
+    <div class="target">
+      <input class="target-input" id="targetHost" value="127.0.0.1" title="Hub host" />
+      <span class="colon">:</span>
+      <input class="target-input" id="targetPort" value="1408" style="width:52px" title="Hub port" />
+    </div>
+    <button class="btn ghost sm" id="btnForward" title="Run adb forward tcp:PORT tcp:PORT">adb forward</button>
+    <button class="btn sm" id="btnReconnect">Reconnect</button>
+    <button class="btn ghost sm icon" id="btnTheme" title="Toggle light / dark" aria-label="Toggle theme"></button>
+  </div>
+  <div class="accent-bar"></div>
+
+  <div class="body">
+    <nav class="nav">
+      <div class="nav-label">Console</div>
+      <button data-tab="models" class="active">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        <span>Models</span>
+      </button>
+      <button data-tab="monitor">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        <span>Monitor</span>
+      </button>
+      <button data-tab="playground">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span>Playground</span>
+      </button>
+      <button data-tab="firewall">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg>
+        <span>Firewall</span>
+      </button>
+      <button data-tab="tools">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0V8ZM12 17v5"/></svg>
+        <span>Tools</span>
+      </button>
+      <button data-tab="knowledge">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-4.4 0-8 1.3-8 3s3.6 3 8 3 8-1.3 8-3-3.6-3-8-3ZM4 6v5c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 11v5c0 1.7 3.6 3 8 3s8-1.3 8-3v-5"/></svg>
+        <span>Knowledge</span>
+      </button>
+      <div class="nav-foot">
+        <span class="ghost-mini"></span>
+        <span>Shared runtime · one copy in RAM</span>
+      </div>
+    </nav>
+
+    <main class="main">
+      <!-- ===== MODELS ===== -->
+      <section class="tab active" id="tab-models">
+        <div class="tab-head">
+          <div><h2 class="tab-title">Models</h2>
+          <p class="tab-sub">Hub catalog — resolve, verify (SHA-256), pull, pin &amp; activate, package-manager style.</p></div>
+          <button class="btn sm ghost" id="btnRefreshModels">↻ Refresh</button>
+        </div>
+        <div class="toolbar"><span class="muted" id="modelsSummary"></span></div>
+        <div class="card pad0">
+          <table>
+            <thead><tr><th>Model</th><th>Family</th><th>Params</th><th>Size</th><th>Ver</th><th>State</th><th></th></tr></thead>
+            <tbody id="modelsBody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== MONITOR ===== -->
+      <section class="tab" id="tab-monitor">
+        <div class="tab-head">
+          <div><h2 class="tab-title">Monitor</h2>
+          <p class="tab-sub">Live runtime state — health, resident (warm) models, throughput. Auto-refresh every 4s.</p></div>
+          <div class="head-actions">
+            <label class="chk"><input type="checkbox" id="autoPoll" checked /> Auto-refresh</label>
+            <button class="btn sm ghost" id="btnRefreshMon">↻ Refresh</button>
+          </div>
+        </div>
+        <div class="grid" id="monMetrics"></div>
+        <div class="card">
+          <h3>Throughput — recent generations <span class="sub-note">tok/s, client-measured</span></h3>
+          <canvas id="tpsChart" width="1040" height="150" style="width:100%;height:150px"></canvas>
+          <div id="chartEmpty" class="empty">Run a chat in the Playground to plot throughput.</div>
+        </div>
+        <div class="two-col">
+          <div class="card">
+            <h3>Warm models <span class="sub-note">resident in RAM</span></h3>
+            <div id="warmList" class="empty">—</div>
+          </div>
+          <div class="card">
+            <h3>Recent generations</h3>
+            <div id="genLog" class="empty">Run something in the Playground to see tok/s &amp; TTFT here.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== PLAYGROUND ===== -->
+      <section class="tab" id="tab-playground">
+        <div class="tab-head">
+          <div><h2 class="tab-title">Playground</h2>
+          <p class="tab-sub">Talk to the shared runtime — streaming chat, the tool-using agent loop, and vision captioning.</p></div>
+        </div>
+        <div class="seg" id="pgModeSeg">
+          <button class="seg-btn active" data-mode="chat">Chat</button>
+          <button class="seg-btn" data-mode="agent">Agent</button>
+          <button class="seg-btn" data-mode="vision">Vision</button>
+          <button class="seg-btn" data-mode="speech">Speech</button>
+        </div>
+        <select class="txt" id="pgMode" style="display:none">
+          <option value="chat">Chat</option><option value="agent">Agent</option><option value="vision">Vision</option><option value="speech">Speech</option>
+        </select>
+        <div class="toolbar">
+          <span id="agentFlags" style="display:none" class="flag-group">
+            <label class="chk"><input type="checkbox" id="flagSide" /> allow_side_effects</label>
+            <label class="chk"><input type="checkbox" id="flagEgress" /> allow_egress</label>
+            <label class="chk"><input type="checkbox" id="flagTaint" /> allow_tainted_egress</label>
+          </span>
+          <span id="visionPick" style="display:none"><button class="btn sm ghost" id="btnPickImage">Choose image…</button> <span class="muted" id="imgName"></span></span>
+          <span id="speechPick" style="display:none"><button class="btn sm ghost" id="btnPickAudio">Choose audio…</button> <button class="btn sm ghost" id="btnRecord"><span class="rec-dot"></span>Record</button> <span class="muted" id="audioName"></span></span>
+        </div>
+        <div class="composer">
+          <textarea class="txt grow" id="pgPrompt" rows="2" placeholder="Ask something…  (Ctrl/⌘+Enter to send)"></textarea>
+          <button class="btn primary" id="btnSend">Send</button>
+        </div>
+        <div class="output" id="pgOutput"><span class="empty">Output appears here.</span></div>
+        <input type="file" id="imgFile" accept="image/*" style="display:none" />
+        <input type="file" id="audioFile" accept="audio/*" style="display:none" />
+      </section>
+
+      <!-- ===== FIREWALL ===== -->
+      <section class="tab" id="tab-firewall">
+        <div class="tab-head">
+          <div><h2 class="tab-title">Firewall &amp; Permissions</h2>
+          <p class="tab-sub">The data-flow firewall — remembered egress policy per destination, capability grants per app, and a deterministic self-test.</p></div>
+        </div>
+
+        <div class="card">
+          <h3>Egress policy</h3>
+          <div class="row">
+            <input class="txt grow" id="egHost" placeholder="destination host, e.g. 127.0.0.1" />
+            <button class="btn sm" data-eg="allow">Allow</button>
+            <button class="btn sm danger-o" data-eg="deny">Deny</button>
+            <button class="btn sm ghost" data-eg="allow-tainted">Allow tainted</button>
+            <button class="btn sm ghost" data-eg="forget">Forget</button>
+          </div>
+          <table>
+            <thead><tr><th>Host</th><th>Reachable</th><th>Local data (tainted)</th><th></th></tr></thead>
+            <tbody id="egBody"><tr><td colspan="4" class="empty">No policies set.</td></tr></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3>Self-test <span class="sub-note">deterministic, no model</span></h3>
+          <div class="toolbar"><button class="btn sm" id="btnSelfTest">▶ Run self-test</button></div>
+          <div class="output" id="selfTestOut" style="min-height:80px"><span class="empty">Proves BLOCK/ALLOW across the three consent states.</span></div>
+        </div>
+
+        <div class="card pad0">
+          <div class="card-head"><h3>Capability grants</h3><button class="btn sm ghost" id="btnRefreshPerms">↻ Refresh</button></div>
+          <table>
+            <thead><tr><th>App</th><th>Capability</th><th>Risk</th><th>State</th><th></th></tr></thead>
+            <tbody id="permBody"><tr><td colspan="5" class="empty">No grants recorded.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== TOOLS ===== -->
+      <section class="tab" id="tab-tools">
+        <div class="tab-head">
+          <div><h2 class="tab-title">Tools</h2>
+          <p class="tab-sub">App-registered external tools (webhooks) the agent can call. This is what makes EdgeLM a platform — apps bring their own tools; the runtime brokers the call under the firewall.</p></div>
+          <button class="btn sm ghost" id="btnRefreshTools">↻ Refresh</button>
+        </div>
+
+        <div class="card">
+          <h3>Register a webhook tool</h3>
+          <div class="row">
+            <input class="txt" id="toolName" placeholder="name (e.g. weather)" style="max-width:180px" />
+            <input class="txt grow" id="toolUrl" placeholder="https://host:port/path" />
+          </div>
+          <div class="row">
+            <input class="txt grow" id="toolDesc" placeholder="description — what the tool does (helps the model decide when to call it)" />
+            <button class="btn" id="btnRegisterTool">Register</button>
+          </div>
+        </div>
+
+        <div class="card pad0">
+          <div class="card-head"><h3>Registered tools</h3><span class="muted" id="toolsSummary"></span></div>
+          <table>
+            <thead><tr><th>Name</th><th>Destination</th><th>Description</th><th></th></tr></thead>
+            <tbody id="toolsBody"><tr><td colspan="4" class="empty">No tools registered.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===== KNOWLEDGE ===== -->
+      <section class="tab" id="tab-knowledge">
+        <div class="tab-head">
+          <div><h2 class="tab-title">Knowledge</h2>
+          <p class="tab-sub">On-device embeddings, a local vector index, and retrieval-augmented answers — all running on the phone, no cloud. Requires the embedding model (<span class="mono">bge-small-en-v1.5</span>).</p></div>
+          <button class="btn sm ghost" id="btnRefreshCols">↻ Refresh</button>
+        </div>
+
+        <div class="two-col">
+          <div class="card">
+            <h3>Collections</h3>
+            <div id="colsList" class="empty">No collections yet.</div>
+          </div>
+          <div class="card">
+            <h3>Add documents <span class="sub-note">one per line</span></h3>
+            <div class="row">
+              <input class="txt" id="kCol" placeholder="collection" value="default" style="max-width:180px" />
+              <button class="btn" id="btnAddDocs">Add &amp; embed</button>
+            </div>
+            <textarea class="txt" id="kDocs" rows="4" placeholder="Paste text — each line becomes a document, embedded on-device."></textarea>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Ask &amp; search</h3>
+          <div class="row">
+            <input class="txt" id="kQueryCol" placeholder="collection" value="default" style="max-width:180px" />
+            <input class="txt grow" id="kQuery" placeholder="Ask a question, or search the index…" />
+            <input class="txt" id="kTopK" type="number" value="4" min="1" max="20" title="top_k" style="max-width:72px" />
+          </div>
+          <div class="toolbar">
+            <button class="btn primary" id="btnRag">Ask (RAG)</button>
+            <button class="btn" id="btnVecSearch">Search vectors</button>
+          </div>
+          <div class="output" id="kOutput"><span class="empty">Answers (grounded in your documents) and raw semantic matches appear here.</span></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

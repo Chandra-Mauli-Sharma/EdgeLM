@@ -198,16 +198,46 @@ switch ($Command.ToLower()) {
   "agent" {
     $allow = $Rest -contains "--allow"
     $egress = $Rest -contains "--allow-egress"
-    $prompt = (($Rest | Where-Object { $_ -ne "--allow" -and $_ -ne "--allow-egress" }) -join " ").Trim()
-    if (-not $prompt) { Fail 'usage: .\tools\edgelm.ps1 agent "question" [--allow] [--allow-egress]' }
-    $body = @{ prompt = $prompt; allow_side_effects = $allow; allow_egress = $egress } | ConvertTo-Json -Compress
+    $tainted = $Rest -contains "--allow-tainted"
+    $flags = @("--allow", "--allow-egress", "--allow-tainted")
+    $prompt = (($Rest | Where-Object { $flags -notcontains $_ }) -join " ").Trim()
+    if (-not $prompt) { Fail 'usage: .\tools\edgelm.ps1 agent "question" [--allow] [--allow-egress] [--allow-tainted]' }
+    $body = @{ prompt = $prompt; allow_side_effects = $allow; allow_egress = $egress; allow_tainted_egress = $tainted } | ConvertTo-Json -Compress
     $resp = Invoke-RestMethod -Method Post -Uri "$Base/v1/edge/agent" -ContentType "application/json" -Body $body
     if ($resp.error) { Write-Host $resp.error; break }
     foreach ($s in $resp.steps) {
-      if ($s.egress) { Write-Host ("  [tool] {0} -> {1}   (egress -> {2})" -f $s.tool, $s.result, $s.egress) }
+      $tag = if ($s.tainted_egress) { " [TAINTED]" } else { "" }
+      if ($s.egress) { Write-Host ("  [tool] {0} -> {1}   (egress -> {2}){3}" -f $s.tool, $s.result, $s.egress, $tag) }
       else { Write-Host ("  [tool] {0} -> {1}" -f $s.tool, $s.result) }
     }
     Write-Host ("answer: {0}" -f $resp.answer)
+  }
+
+  "firewall-test" {
+    Write-Host "Data-flow firewall self-test (deterministic, no model): local read 'banana' -> egress 'echo'"
+    foreach ($case in @(
+      @{label="no consent";       eg=$false; ta=$false},
+      @{label="egress only";      eg=$true;  ta=$false},
+      @{label="egress + tainted"; eg=$true;  ta=$true})) {
+      $body = @{ firewall_test=$true; data="banana"; tool="echo"; allow_egress=$case.eg; allow_tainted_egress=$case.ta } | ConvertTo-Json -Compress
+      $r = Invoke-RestMethod -Method Post -Uri "$Base/v1/edge/agent" -ContentType "application/json" -Body $body
+      $detail = if ($r.reason) { $r.reason } elseif ($r.result) { "$($r.result)  (egress -> $($r.egress))" } else { "" }
+      Write-Host ("  [{0,-16}] {1}: {2}" -f $case.label, $r.decision, $detail)
+    }
+  }
+
+  "egress" {
+    $op = if ($Rest.Count -ge 1) { $Rest[0] } else { "list" }
+    if ($op -eq "list") {
+      $r = Invoke-RestMethod -Method Get -Uri "$Base/v1/edge/egress"
+      if (-not $r.policies -or $r.policies.Count -eq 0) { Write-Host "(no egress policies set)" }
+      else { foreach ($p in $r.policies) { Write-Host ("  {0,-24} egress={1}  tainted={2}" -f $p.host, $p.egress, $p.tainted) } }
+    } else {
+      if ($Rest.Count -lt 2) { Fail 'usage: .\tools\edgelm.ps1 egress <allow|deny|allow-tainted|deny-tainted|forget> <host>' }
+      $body = @{ host = $Rest[1] } | ConvertTo-Json -Compress
+      $r = Invoke-RestMethod -Method Post -Uri "$Base/v1/edge/egress/$op" -ContentType "application/json" -Body $body
+      Write-Host ($r | ConvertTo-Json -Compress)
+    }
   }
 
   "caption" {

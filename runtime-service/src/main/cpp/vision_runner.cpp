@@ -50,9 +50,27 @@ int vision_generate(VisionModel* m, const std::string& prompt,
     auto wrap = mtmd_helper_bitmap_init_from_buf(m->mctx, image, (size_t)image_len, /*placeholder=*/false);
     if (!wrap.bitmap) { LOGE("vision: image decode failed"); return 0; }
 
-    // Prompt with the media marker where the image goes.
-    const std::string full = std::string("<|im_start|>user\n") + mtmd_default_marker() + "\n" +
-                             prompt + "<|im_end|>\n<|im_start|>assistant\n";
+    // Build the prompt with the MODEL'S OWN chat template, so each model gets the right wrapper:
+    // Qwen vision → ChatML, Llama-3.2/Ultravox audio → the llama3 header format. The media
+    // marker lives inside the user message content. Falls back to ChatML if the model carries
+    // no built-in template (preserves the previous behaviour for template-less GGUFs).
+    const std::string user_content = std::string(mtmd_default_marker()) + "\n" + prompt;
+    std::string full;
+    const char* tmpl = llama_model_chat_template(m->model, nullptr);
+    if (tmpl) {
+        llama_chat_message msg{ "user", user_content.c_str() };
+        std::vector<char> buf(user_content.size() * 2 + 256);
+        int32_t n = llama_chat_apply_template(tmpl, &msg, 1, /*add_ass=*/true, buf.data(), (int32_t)buf.size());
+        if (n > (int32_t)buf.size()) {           // buffer too small → grow and retry (per API contract)
+            buf.resize(n);
+            n = llama_chat_apply_template(tmpl, &msg, 1, /*add_ass=*/true, buf.data(), n);
+        }
+        if (n > 0) full.assign(buf.data(), (size_t)n);
+    }
+    if (full.empty()) {   // no built-in template (or apply failed) → ChatML fallback (Qwen-style)
+        full = std::string("<|im_start|>user\n") + user_content + "<|im_end|>\n<|im_start|>assistant\n";
+    }
+    LOGI("vision: chat template=%s", tmpl ? "model-builtin" : "chatml-fallback");
     mtmd_input_text itext{ full.c_str(), /*add_special=*/true, /*parse_special=*/true };
 
     mtmd_input_chunks* chunks = mtmd_input_chunks_init();

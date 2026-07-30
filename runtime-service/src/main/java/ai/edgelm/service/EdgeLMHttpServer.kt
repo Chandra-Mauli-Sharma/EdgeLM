@@ -51,6 +51,14 @@ class EdgeLMHttpServer(
     private val transcribe: (body: String) -> String = { "{\"error\":\"speech unavailable\"}" },
     // App tool registry: op = register|unregister|list, raw body.
     private val appTools: (op: String, body: String) -> String = { _, _ -> "{\"error\":\"tools unavailable\"}" },
+    // Egress firewall policy: op = list|allow|deny|allow-tainted|deny-tainted|forget, raw body.
+    private val egress: (op: String, body: String) -> String = { _, _ -> "{\"error\":\"egress policy unavailable\"}" },
+    // Capability grants: op = list|grant|deny|revoke, raw body.
+    private val permissions: (op: String, body: String) -> String = { _, _ -> "{\"error\":\"permissions unavailable\"}" },
+    // Make a model active for subsequent inference.
+    private val activate: (model: String) -> String = { "{\"error\":\"activate unavailable\"}" },
+    // Live model-download status (WorkManager progress).
+    private val downloads: () -> String = { "{\"downloads\":[]}" },
 ) : NanoHTTPD("127.0.0.1", port) {
 
     data class GenStats(val tokenCount: Int, val elapsedMs: Long, val ttftMs: Long = 0)
@@ -101,6 +109,18 @@ class EdgeLMHttpServer(
                 session.method == Method.POST && session.uri.startsWith("/v1/edge/tools/") ->
                     raw(appTools(session.uri.removePrefix("/v1/edge/tools/"), readBody(session)))
 
+                // Egress firewall policy: /v1/edge/egress (GET list) or /v1/edge/egress/{op}.
+                session.method == Method.GET && session.uri == "/v1/edge/egress" ->
+                    raw(egress("list", ""))
+                session.method == Method.POST && session.uri.startsWith("/v1/edge/egress/") ->
+                    raw(egress(session.uri.removePrefix("/v1/edge/egress/"), readBody(session)))
+
+                // Capability grants: /v1/edge/permissions (GET list) or /v1/edge/permissions/{op}.
+                session.method == Method.GET && session.uri == "/v1/edge/permissions" ->
+                    raw(permissions("list", ""))
+                session.method == Method.POST && session.uri.startsWith("/v1/edge/permissions/") ->
+                    raw(permissions(session.uri.removePrefix("/v1/edge/permissions/"), readBody(session)))
+
                 // ---- Hub control surface (Part 10/13) ----
                 session.method == Method.GET && session.uri == "/v1/edge/models" ->
                     raw(edgeCatalog())
@@ -109,6 +129,14 @@ class EdgeLMHttpServer(
                     val model = JSONObject(readBody(session)).optString("model")
                     if (model.isBlank()) badRequest("missing 'model'") else raw(edgePull(model))
                 }
+
+                session.method == Method.POST && session.uri == "/v1/edge/activate" -> {
+                    val model = JSONObject(readBody(session)).optString("model")
+                    if (model.isBlank()) badRequest("missing 'model'") else raw(activate(model))
+                }
+
+                session.method == Method.GET && session.uri == "/v1/edge/downloads" ->
+                    raw(downloads())
 
                 session.method == Method.POST && session.uri == "/v1/edge/pin" -> {
                     val req = JSONObject(readBody(session))

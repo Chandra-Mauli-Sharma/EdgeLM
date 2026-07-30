@@ -1,0 +1,23 @@
+{
+  "name": "edgelm-hub-desktop",
+  "version": "0.1.0",
+  "description": "EdgeLM Hub — desktop console for the on-device AI runtime",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "author": "EdgeLM",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "electron": "^31.0.0"
+  },
+  "build": {
+    "appId": "ai.edgelm.hub",
+    "productName": "EdgeLM Hub",
+    "files": ["main.js", "preload.js", "renderer/**"],
+    "win": { "target": "nsis" },
+    "mac": { "target": "dmg" },
+    "linux": { "target": "AppImage" }
+  }
+}

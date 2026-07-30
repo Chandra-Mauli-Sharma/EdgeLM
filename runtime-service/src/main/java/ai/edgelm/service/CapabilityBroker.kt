@@ -59,6 +59,7 @@ class CapabilityBroker(private val appContext: Context) {
         CHAT("chat", "ai.edgelm.CHAT", Risk.LOW),
         EMBED("embed", "ai.edgelm.EMBED", Risk.LOW),
         VISION("vision", "ai.edgelm.VISION", Risk.LOW),
+        AUDIO("audio", "ai.edgelm.AUDIO", Risk.LOW),
         /** Run inference while NOT the foreground app (battery-abuse vector → consent). */
         BACKGROUND_INFERENCE("background_inference", "ai.edgelm.BACKGROUND_INFERENCE", Risk.HIGH);
 
@@ -158,6 +159,55 @@ class CapabilityBroker(private val appContext: Context) {
     /** Clear a grant back to UNSET (re-prompts / re-grants on next use). */
     fun revoke(pkg: String, cap: Capability) {
         prefs.edit().remove(key(pkg, cap)).apply()
+    }
+
+    // ---- Egress policy (data-flow firewall, remembered per destination) -------
+    //
+    // Per-call `allow_egress` / `allow_tainted_egress` flags are one-shot consent. A real
+    // firewall remembers a decision per destination host so an app needn't re-consent every
+    // call, and so a destination can be *permanently blocked*. Two independent axes per host:
+    //   egress:<host>        — may data reach this host at all?
+    //   egress-taint:<host>  — may LOCAL (tainted) data reach this host?
+    // ALLOW short-circuits the flag; DENY overrides it (hard block); UNSET falls back to the
+    // per-call flag. Keyed by host (the destination), the meaningful axis for egress.
+
+    enum class EgressState { ALLOW, DENY, UNSET }
+
+    private fun readEgress(v: String?): EgressState = when (v) {
+        "allow" -> EgressState.ALLOW; "deny" -> EgressState.DENY; else -> EgressState.UNSET
+    }
+    /** Normalize a URL or host to a bare lowercase host (no scheme/port/path). */
+    fun hostOf(urlOrHost: String): String = runCatching {
+        val h = if (urlOrHost.contains("://")) java.net.URI(urlOrHost).host else urlOrHost.substringBefore('/')
+        (h ?: urlOrHost).substringBefore(':').trim().lowercase()
+    }.getOrDefault(urlOrHost.trim().lowercase())
+
+    fun egressPolicy(host: String): EgressState = readEgress(prefs.getString("egress:${hostOf(host)}", null))
+    fun egressTaintPolicy(host: String): EgressState = readEgress(prefs.getString("egress-taint:${hostOf(host)}", null))
+
+    /** Set the reachability policy for [host]; null clears it back to UNSET. */
+    fun setEgressPolicy(host: String, state: EgressState?) {
+        val k = "egress:${hostOf(host)}"
+        if (state == null || state == EgressState.UNSET) prefs.edit().remove(k).apply()
+        else prefs.edit().putString(k, if (state == EgressState.ALLOW) "allow" else "deny").apply()
+    }
+    /** Set the tainted-data policy for [host]; null clears it. */
+    fun setEgressTaintPolicy(host: String, state: EgressState?) {
+        val k = "egress-taint:${hostOf(host)}"
+        if (state == null || state == EgressState.UNSET) prefs.edit().remove(k).apply()
+        else prefs.edit().putString(k, if (state == EgressState.ALLOW) "allow" else "deny").apply()
+    }
+    /** Clear both policies for [host]. */
+    fun forgetEgress(host: String) {
+        val h = hostOf(host)
+        prefs.edit().remove("egress:$h").remove("egress-taint:$h").apply()
+    }
+    /** All remembered egress policies: host -> (reachability, tainted). Powers `edgelm egress list`. */
+    fun allEgressPolicies(): Map<String, Pair<EgressState, EgressState>> {
+        val hosts = prefs.all.keys
+            .filter { it.startsWith("egress:") || it.startsWith("egress-taint:") }
+            .map { it.substringAfter(':') }.toSet()
+        return hosts.associateWith { egressPolicy(it) to egressTaintPolicy(it) }
     }
 
     /** Every recorded (package, capability, granted) triple — powers the system "AI permissions" UI. */

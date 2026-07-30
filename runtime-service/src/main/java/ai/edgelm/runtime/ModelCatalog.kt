@@ -231,7 +231,31 @@ object ModelCatalog {
             mmprojUrl = "https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf?download=true",
             mmprojSizeMb = 1350,
         ),
+        // --- Phase 2: speech / audio (kind="audio") — an audio-capable multimodal model:
+        // the LLM GGUF plus an AUDIO mmproj projector (a whisper-style encoder), run through
+        // the SAME llama.cpp mtmd path as vision (mtmd auto-detects wav/mp3/flac by magic
+        // bytes). Only usable in a -DEDGELM_VISION build. ⚠️ VERIFY both HF URLs (ggml-org).
+        ModelSpec(
+            id = "ultravox-1b",
+            name = "Ultravox 0.5 1B (speech)",
+            params = "1B", quant = "Q4_K_M", sizeMb = 808, ctx = "8K",
+            minRamMb = 3072, license = "MIT",
+            blurb = "On-device speech understanding — transcribe and answer questions about audio " +
+                    "(wav/mp3/flac) entirely locally. Llama-3.2-1B + an Ultravox audio encoder. " +
+                    "Requires an mtmd-enabled (-DEDGELM_VISION) runtime.",
+            useCase = "On-device speech-to-text and spoken-audio Q&A via llama.cpp mtmd.",
+            simpleName = "Voice Listener",
+            simpleTagline = "Understands speech on your phone — transcribes and answers about audio, no cloud.",
+            url = "https://huggingface.co/ggml-org/ultravox-v0_5-llama-3_2-1b-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf?download=true",
+            kind = "audio",
+            family = "audio.small",
+            mmprojUrl = "https://huggingface.co/ggml-org/ultravox-v0_5-llama-3_2-1b-GGUF/resolve/main/mmproj-ultravox-v0_5-llama-3_2-1b-f16.gguf?download=true",
+            mmprojSizeMb = 1370,
+        ),
     )
+
+    /** The default audio (speech) model (kind="audio"), or null if none in the catalog. */
+    fun audioModel(): ModelSpec? = models.firstOrNull { it.kind == "audio" }
 
     /** The default embedding model (kind="embed"), or null if none in the catalog. */
     fun embeddingModel(): ModelSpec? = models.firstOrNull { it.kind == "embed" }

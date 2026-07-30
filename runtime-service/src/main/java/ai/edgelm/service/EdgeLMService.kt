@@ -521,6 +521,10 @@ class EdgeLMService : Service() {
             caption = { body -> edgeCaption(body) },
             transcribe = { body -> edgeTranscribe(body) },
             appTools = { op, body -> edgeAppTools(op, body) },
+            egress = { op, body -> edgeEgress(op, body) },
+            permissions = { op, body -> edgePermissions(op, body) },
+            activate = { model -> edgeActivate(model) },
+            downloads = { edgeDownloads() },
         ).also { server ->
             runCatching { server.start(fi.iki.elonen.NanoHTTPD.SOCKET_READ_TIMEOUT, false) }
                 .onSuccess { Log.i(TAG, "HTTP shim on http://127.0.0.1:$HTTP_PORT/v1") }
@@ -576,6 +580,37 @@ class EdgeLMService : Service() {
             .put("id", model).put("pinned", pinned)
             .put("pinned_version", ai.edgelm.runtime.Hub.pinnedVersion(this, model) ?: -1).toString()
     }
+
+    /** Make [model] the active one for subsequent inference (must be installed). */
+    private fun edgeActivate(model: String): String {
+        val spec = ModelCatalog.byId(model)
+            ?: return org.json.JSONObject().put("error", "unknown model '$model'").toString()
+        if (!ModelStore.isInstalled(this, spec.id))
+            return org.json.JSONObject().put("error", "model '$model' is not installed").toString()
+        ModelStore.setActive(this, spec.id)
+        return org.json.JSONObject().put("id", spec.id).put("active", true).toString()
+    }
+
+    /** Live model-download status from WorkManager (id, state, pct, bytes) for the Hub UI. */
+    private fun edgeDownloads(): String = try {
+        val infos = androidx.work.WorkManager.getInstance(this)
+            .getWorkInfosForUniqueWork(ai.edgelm.runtime.DownloadWorker.UNIQUE).get()
+        val arr = org.json.JSONArray()
+        infos.forEach { wi ->
+            val p = wi.progress; val out = wi.outputData
+            val id = p.getString(ai.edgelm.runtime.DownloadWorker.KEY_ID)
+                ?: out.getString(ai.edgelm.runtime.DownloadWorker.KEY_ID) ?: ""
+            val o = org.json.JSONObject()
+                .put("id", id)
+                .put("state", wi.state.name)                                   // ENQUEUED/RUNNING/SUCCEEDED/FAILED
+                .put("pct", p.getInt(ai.edgelm.runtime.DownloadWorker.KEY_PCT, -1))
+                .put("read", p.getLong(ai.edgelm.runtime.DownloadWorker.KEY_READ, 0))
+                .put("total", p.getLong(ai.edgelm.runtime.DownloadWorker.KEY_TOTAL, 0))
+            out.getString(ai.edgelm.runtime.DownloadWorker.KEY_ERROR)?.let { o.put("error", it) }
+            arr.put(o)
+        }
+        org.json.JSONObject().put("downloads", arr).toString()
+    } catch (t: Throwable) { errJson(t.message ?: "downloads error") }
 
     // ---- Embeddings (Phase 2) -------------------------------------------------
 
@@ -645,6 +680,14 @@ class EdgeLMService : Service() {
         //    because it's the exfiltration surface — local data leaving the phone.
         val allowSideEffects = req.optBoolean("allow_side_effects", false)
         val allowEgress = req.optBoolean("allow_egress", false)
+        //  - allow_tainted_egress: an egress call may carry LOCAL-origin data (a local tool
+        //    result) off-device. Strictest — this is exfiltration of the user's own data,
+        //    distinct from merely reaching the network. See taint-tracking below.
+        val allowTaintedEgress = req.optBoolean("allow_tainted_egress", false)
+        // Deterministic firewall self-test (no LLM): seed a tainted span and run the exact
+        // egress gate against a synthetic egress call, so the mechanism is verifiable even
+        // when a small model won't reliably chain read->egress tools.
+        if (req.optBoolean("firewall_test", false)) return firewallSelfTest(req, allowEgress, allowTaintedEgress)
         val d = broker.checkHttp(CapabilityBroker.Capability.CHAT)
         if (d is CapabilityBroker.Decision.Deny) return errJson("EdgeLM: ${d.reason}")
 
@@ -659,43 +702,140 @@ class EdgeLMService : Service() {
         val grammar = ToolCalls.grammarForTools(ToolCalls.toolNames(tools))   // forces a valid tool_call
 
         val steps = JSONArray()
-        var convo = userPrompt
+        val scratch = StringBuilder()               // running transcript of tool results, so the
+        var convo = userPrompt                      // model can chain tools (read -> act) not just one
         var answer: String? = null
-        for (step in 0 until 4) {                       // bounded tool loop
+        // TAINT SET: results of local (non-pure) tools are local-origin data. If a later
+        // egress call's arguments carry any of it, the firewall blocks the exfiltration
+        // unless allow_tainted_egress. Pure/public tools (calculator, current_time) don't taint.
+        val tainted = ArrayList<String>()
+        val pureTools = setOf("calculator", "current_time")
+        for (step in 0 until 5) {                       // bounded tool loop
             val out = generateText(system, convo, grammar)
             val calls = ToolCalls.parse(out) ?: break
             val fn = calls.getJSONObject(0).getJSONObject("function")
             val name = fn.getString("name")
-            val args = runCatching { JSONObject(fn.getString("arguments")) }.getOrDefault(JSONObject())
+            val argsStr = fn.getString("arguments")
+            val args = runCatching { JSONObject(argsStr) }.getOrDefault(JSONObject())
             if (name == "final_answer") { answer = args.optString("answer").ifBlank { convo }; break }
             // Route to a built-in tool or an app-registered webhook, under the firewall:
             // egress (webhook) tools need allow_egress; local side-effects need allow_side_effects.
             val builtin = ToolBroker.byName(name)
             val appTool = AppToolRegistry.byName(name)
+            // Taint check: does this outgoing call carry local-origin data off-device?
+            val flowed = if (appTool != null) taintSpansIn(argsStr, tainted) else emptyList()
+            val egressRefusal = if (appTool != null)
+                egressRefusal(name, appTool.url, allowEgress, flowed, allowTaintedEgress) else null
             val result = when {
-                appTool != null && !allowEgress ->
-                    "refused: '$name' sends data off-device (network egress) — needs consent (allow_egress=true)"
+                egressRefusal != null -> egressRefusal
                 builtin?.sideEffecting == true && !allowSideEffects ->
                     "refused: '$name' has side effects — needs consent (allow_side_effects=true)"
                 builtin != null -> ToolBroker.execute(name, args)          // in-runtime
                 appTool != null -> AppToolRegistry.execute(name, args)     // app webhook (egress)
                 else -> "error: unknown tool '$name'"
             }
-            // Legibility: record exactly what data left the device for each egress call.
-            if (appTool != null && allowEgress) {
+            // A local (non-pure) tool result is local-origin data — taint it for later egress checks.
+            if (builtin != null && name !in pureTools &&
+                !result.startsWith("refused") && !result.startsWith("error")) {
+                tainted.add(result)
+            }
+            // Legibility: record exactly what data left the device for each egress call
+            // (whether permitted by the per-call flag or a remembered ALLOW policy).
+            if (appTool != null && !result.startsWith("refused")) {
                 Log.i(TAG, "EGRESS: '$name' -> ${appTool.url} sent=$args")
+                if (flowed.isNotEmpty()) Log.w(TAG, "TAINTED EGRESS: '$name' carried ${flowed.size} local span(s) off-device")
             }
             val stepObj = JSONObject().put("tool", name).put("arguments", args).put("result", result)
             if (appTool != null) stepObj.put("egress", appTool.url)   // where the data went off-device
+            if (flowed.isNotEmpty()) stepObj.put("tainted_egress", true)  // carried local-origin data
             steps.put(stepObj)
             Log.i(TAG, "agent step $step: $name($args) -> $result")
-            convo = "$userPrompt\n\n[The $name tool returned: $result]\n" +
-                    "Now call final_answer with the answer for the user (include the result)."
+            scratch.append("[$name returned: $result]\n")
+            // Let the model decide: chain another tool (e.g. read -> then act on it) or finish.
+            convo = "$userPrompt\n\nTool results so far:\n$scratch\n" +
+                    "If you now have everything needed, call final_answer with the answer for the user " +
+                    "(include the relevant result). Otherwise call the next tool you need."
         }
         return JSONObject()
             .put("answer", answer ?: "(no final answer after tool steps)")
             .put("steps", steps)
             .toString()
+    }
+
+    /**
+     * Taint detector (data-flow firewall v2, heuristic). Returns the tainted spans that flow
+     * into [outgoing] (an egress tool's argument JSON). A span flows if it appears verbatim, or
+     * if a distinctive word (>= 5 chars) from it appears — catching the model paraphrasing local
+     * data into a webhook call. Substring/token heuristic, not full IFC; conservative by design.
+     */
+    private fun taintSpansIn(outgoing: String, tainted: List<String>): List<String> {
+        if (tainted.isEmpty()) return emptyList()
+        val hay = outgoing.lowercase()
+        return tainted.filter { span ->
+            val s = span.trim().lowercase()
+            if (s.length >= 4 && hay.contains(s)) return@filter true
+            s.split(Regex("\\W+")).any { it.length >= 5 && hay.contains(it) }
+        }
+    }
+
+    /**
+     * The egress firewall decision for one webhook call. Returns a refusal string, or null if
+     * the call is permitted. [flowed] = tainted spans the call would carry (from [taintSpansIn]).
+     * Shared by the agent loop and [firewallSelfTest] so both enforce identical rules.
+     */
+    private fun egressRefusal(
+        name: String, url: String, allowEgress: Boolean, flowed: List<String>, allowTaintedEgress: Boolean,
+    ): String? {
+        val host = broker.hostOf(url)
+        // Remembered per-destination policy takes precedence over the one-shot flags:
+        //   DENY  -> hard block (overrides the flag);  ALLOW -> permitted without the flag.
+        when (broker.egressPolicy(host)) {
+            CapabilityBroker.EgressState.DENY ->
+                return "refused: egress to '$host' is blocked by policy (run: edgelm egress allow $host to permit)"
+            CapabilityBroker.EgressState.ALLOW -> {}    // reachability granted; fall through to taint check
+            CapabilityBroker.EgressState.UNSET ->
+                if (!allowEgress) return "refused: '$name' sends data off-device to '$host' (network egress) — needs consent (allow_egress=true, or: edgelm egress allow $host)"
+        }
+        if (flowed.isNotEmpty()) {
+            when (broker.egressTaintPolicy(host)) {
+                CapabilityBroker.EgressState.DENY ->
+                    return "refused: local data to '$host' is blocked by policy (${flowed.size} tainted span(s))"
+                CapabilityBroker.EgressState.ALLOW -> {}
+                CapabilityBroker.EgressState.UNSET ->
+                    if (!allowTaintedEgress) return "refused: '$name' would send LOCAL data off-device to '$host' (${flowed.size} tainted span(s) from a prior local tool) — needs consent (allow_tainted_egress=true, or: edgelm egress allow-tainted $host)"
+            }
+        }
+        return null
+    }
+
+    /**
+     * Deterministic verification of the data-flow firewall — no model in the loop. Treats
+     * [req].data as a span read from a local tool (tainted), builds a synthetic egress call
+     * carrying it, and runs the real [egressRefusal] gate. If permitted and the named tool is a
+     * registered webhook, it actually POSTs (showing the round trip). Proves BLOCK/ALLOW behavior
+     * independent of whether a small model chooses to chain read->egress tools.
+     */
+    private fun firewallSelfTest(req: JSONObject, allowEgress: Boolean, allowTaintedEgress: Boolean): String {
+        val data = req.optString("data", "banana")           // pretend a local read returned this
+        val name = req.optString("tool", "echo")
+        val appTool = AppToolRegistry.byName(name)
+        val url = appTool?.url ?: req.optString("url", "http://unregistered.local/$name")
+        val argsStr = JSONObject().put("value", data).toString()   // egress args carrying local data
+        val flowed = taintSpansIn(argsStr, listOf(data))
+        val refusal = egressRefusal(name, url, allowEgress, flowed, allowTaintedEgress)
+        val out = JSONObject()
+            .put("scenario", "local read '$data' -> egress '$name'(args=$argsStr)")
+            .put("tainted_spans", JSONArray(flowed))
+            .put("allow_egress", allowEgress)
+            .put("allow_tainted_egress", allowTaintedEgress)
+        if (refusal != null) return out.put("decision", "BLOCKED").put("reason", refusal).toString()
+        out.put("decision", "ALLOWED")
+        if (appTool != null) {
+            val result = AppToolRegistry.execute(name, JSONObject(argsStr))
+            out.put("egress", appTool.url).put("result", result).put("tainted_egress", flowed.isNotEmpty())
+            if (flowed.isNotEmpty()) Log.w(TAG, "TAINTED EGRESS (self-test): '$name' carried ${flowed.size} span(s) -> ${appTool.url}")
+        } else out.put("note", "tool '$name' not registered — decision only, no round trip")
+        return out.toString()
     }
 
     /** Register/unregister/list app-provided external tools (webhooks) for the agent. */
@@ -724,6 +864,64 @@ class EdgeLMService : Service() {
         }
     } catch (t: Throwable) { errJson(t.message ?: "tools error") }
 
+    /**
+     * Egress firewall policy surface (data-flow firewall v3). Persists per-destination
+     * consent so egress isn't re-decided every call: list | allow | deny | allow-tainted |
+     * deny-tainted | forget, each keyed by destination host.
+     */
+    private fun edgeEgress(op: String, body: String): String = try {
+        fun host() = broker.hostOf(JSONObject(body).optString("host"))
+        when (op) {
+            "list" -> {
+                val arr = JSONArray()
+                broker.allEgressPolicies().toSortedMap().forEach { (h, p) ->
+                    arr.put(JSONObject().put("host", h)
+                        .put("egress", p.first.name.lowercase())
+                        .put("tainted", p.second.name.lowercase()))
+                }
+                JSONObject().put("policies", arr).toString()
+            }
+            "allow" -> { val h = host(); broker.setEgressPolicy(h, CapabilityBroker.EgressState.ALLOW); JSONObject().put("host", h).put("egress", "allow").toString() }
+            "deny" -> { val h = host(); broker.setEgressPolicy(h, CapabilityBroker.EgressState.DENY); JSONObject().put("host", h).put("egress", "deny").toString() }
+            "allow-tainted" -> { val h = host(); broker.setEgressTaintPolicy(h, CapabilityBroker.EgressState.ALLOW); JSONObject().put("host", h).put("tainted", "allow").toString() }
+            "deny-tainted" -> { val h = host(); broker.setEgressTaintPolicy(h, CapabilityBroker.EgressState.DENY); JSONObject().put("host", h).put("tainted", "deny").toString() }
+            "forget" -> { val h = host(); broker.forgetEgress(h); JSONObject().put("forgot", h).toString() }
+            else -> errJson("unknown egress op '$op'")
+        }
+    } catch (t: Throwable) { errJson(t.message ?: "egress error") }
+
+    /**
+     * Capability-grant surface for the desktop firewall/permissions view: list every recorded
+     * (package, capability, granted) grant, or grant/deny/revoke one. Reads the same broker
+     * store the runtime enforces (arch doc Part 7 — "revocable per app").
+     */
+    private fun edgePermissions(op: String, body: String): String = try {
+        when (op) {
+            "list" -> {
+                val arr = JSONArray()
+                broker.allGrants().forEach { (pkg, cap, granted) ->
+                    arr.put(JSONObject().put("package", pkg).put("label", broker.labelFor(pkg))
+                        .put("capability", cap.id).put("permission", cap.permission)
+                        .put("risk", cap.risk.name.lowercase()).put("granted", granted))
+                }
+                JSONObject().put("grants", arr).toString()
+            }
+            "grant", "deny", "revoke" -> {
+                val o = JSONObject(body)
+                val pkg = o.optString("package")
+                val cap = CapabilityBroker.Capability.byId(o.optString("capability"))
+                    ?: return errJson("unknown capability '${o.optString("capability")}'")
+                if (pkg.isBlank()) return errJson("missing 'package'")
+                when (op) {
+                    "revoke" -> broker.revoke(pkg, cap)
+                    else -> broker.setGrant(pkg, cap, op == "grant")
+                }
+                JSONObject().put("package", pkg).put("capability", cap.id).put("op", op).toString()
+            }
+            else -> errJson("unknown permissions op '$op'")
+        }
+    } catch (t: Throwable) { errJson(t.message ?: "permissions error") }
+
     // ---- Vision / multimodal (Phase 2) ----------------------------------------
 
     @Volatile private var visionHandle: Long = 0
@@ -743,6 +941,25 @@ class EdgeLMService : Service() {
         visionHandle = NativeBridge.loadVisionModel(llm.absolutePath, mmproj.absolutePath)
         if (visionHandle != 0L) Log.i(TAG, "vision model loaded: ${spec.id}")
         return visionHandle
+    }
+
+    // A separate resident multimodal model for AUDIO (speech), independent of the vision one.
+    @Volatile private var audioHandle: Long = 0
+    private val audioLock = Any()
+
+    /** Lazily load the catalog's audio model (LLM + audio mmproj) via the same mtmd loader
+     *  (mtmd auto-detects audio bytes), if both artifacts are installed. */
+    @Synchronized private fun ensureAudioModelLoaded(): Long {
+        if (audioHandle != 0L) return audioHandle
+        val spec = ModelCatalog.models.firstOrNull {
+            it.kind == "audio" && ModelStore.isInstalled(this, it.id) &&
+                ModelStore.fileFor(this, "${it.id}.mmproj", "gguf").exists()
+        } ?: return 0
+        val llm = ModelStore.installedFile(this, spec.id) ?: return 0
+        val mmproj = ModelStore.fileFor(this, "${spec.id}.mmproj", "gguf")
+        audioHandle = NativeBridge.loadVisionModel(llm.absolutePath, mmproj.absolutePath)
+        if (audioHandle != 0L) Log.i(TAG, "audio model loaded: ${spec.id}")
+        return audioHandle
     }
 
     /** /v1/edge/caption: describe a base64 image. VISION-gated. Needs a -DEDGELM_VISION build. */
@@ -769,20 +986,21 @@ class EdgeLMService : Service() {
         return JSONObject().put("caption", sb.toString().trim()).toString()
     }
 
-    /** /v1/edge/transcribe: speech-to-text. Reuses the mtmd path (it auto-detects audio),
-     *  so it needs an AUDIO-capable multimodal model loaded (SmolVLM is vision-only). */
+    /** /v1/edge/transcribe: speech-to-text + spoken-audio Q&A. AUDIO-gated. Uses the audio
+     *  multimodal model (e.g. Ultravox) through the mtmd path, which auto-detects wav/mp3/flac.
+     *  Needs a -DEDGELM_VISION build (the mtmd runtime is shared with vision). */
     private fun edgeTranscribe(body: String): String {
-        val d = broker.checkHttp(CapabilityBroker.Capability.VISION)   // multimodal capability
+        val d = broker.checkHttp(CapabilityBroker.Capability.AUDIO)
         if (d is CapabilityBroker.Decision.Deny) return errJson("EdgeLM: ${d.reason}")
         val o = JSONObject(body)
         val b64 = o.optString("audio").substringAfterLast("base64,")
         if (b64.isBlank()) return errJson("missing 'audio' (base64 wav/mp3/flac)")
         val bytes = runCatching { android.util.Base64.decode(b64, android.util.Base64.DEFAULT) }.getOrNull()
             ?: return errJson("invalid base64 audio")
-        val h = ensureVisionModelLoaded()
-        if (h == 0L) return errJson("no multimodal model available — needs an audio-capable model + -DEDGELM_VISION build")
+        val h = ensureAudioModelLoaded()
+        if (h == 0L) return errJson("audio model not installed — run: edgelm pull ultravox-1b (needs a -DEDGELM_VISION build)")
         val sb = StringBuilder()
-        synchronized(visionLock) {
+        synchronized(audioLock) {
             NativeBridge.visionGenerate(h, o.optString("prompt", "Transcribe the audio verbatim."), bytes,
                 object : NativeBridge.TokenSink {
                     override fun onChunk(text: String) { sb.append(text) }

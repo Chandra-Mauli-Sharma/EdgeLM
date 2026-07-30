@@ -63,6 +63,19 @@ object ToolBroker {
                 runCatching { f.appendText(note + "\n"); "saved" }.getOrElse { "error: ${it.message}" }
             },
         ),
+        Tool(
+            name = "recall",
+            description = "Read back the notes saved on this device",
+            parameters = JSONObject("""{"type":"object","properties":{}}"""),
+            // A local READ — not side-effecting, but its output is local-origin data. The
+            // agent taints it, so it can't silently flow to an egress tool (firewall v2).
+            run = { _ ->
+                val f = notesFile ?: return@Tool "error: notes storage unavailable"
+                runCatching {
+                    if (f.exists()) f.readText().trim().ifBlank { "(no notes saved)" } else "(no notes saved)"
+                }.getOrElse { "error: ${it.message}" }
+            },
+        ),
     )
 
     fun byName(name: String): Tool? = tools.firstOrNull { it.name == name }

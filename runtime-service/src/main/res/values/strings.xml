@@ -4,6 +4,7 @@
     <string name="perm_chat_desc">Allows the app to use on-device AI chat and text generation through EdgeLM. Prompts stay on this device.</string>
     <string name="perm_embed_desc">Allows the app to create on-device text embeddings through EdgeLM, for search and similarity. Data stays on this device.</string>
     <string name="perm_vision_desc">Allows the app to analyse images with on-device AI through EdgeLM. Images stay on this device.</string>
+    <string name="perm_audio_desc">Allows the app to transcribe and understand speech with on-device AI through EdgeLM. Audio stays on this device.</string>
     <string name="perm_background_desc">Allows the app to run on-device AI while it is not in the foreground. This can use battery and compute in the background; EdgeLM asks for explicit consent before allowing it.</string>
 
     <color name="obsidian">#0B0E10</color>

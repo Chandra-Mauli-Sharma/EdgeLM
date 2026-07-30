@@ -47,6 +47,9 @@
     <permission android:name="ai.edgelm.VISION" android:protectionLevel="normal"
         android:label="On-device AI vision (EdgeLM)"
         android:description="@string/perm_vision_desc" />
+    <permission android:name="ai.edgelm.AUDIO" android:protectionLevel="normal"
+        android:label="On-device AI speech (EdgeLM)"
+        android:description="@string/perm_audio_desc" />
     <permission android:name="ai.edgelm.BACKGROUND_INFERENCE" android:protectionLevel="normal"
         android:label="Background on-device AI (EdgeLM)"
         android:description="@string/perm_background_desc" />
